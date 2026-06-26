@@ -1,0 +1,62 @@
+{{define "new.html"}}<!doctype html>
+<html lang="hr"><head>{{template "head" .}}<title>Novi račun</title>
+<style>
+td{padding:.25rem}
+#items td:first-child{min-width:11rem}
+.row td:nth-child(1){width:55%}
+.stavke-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-top:1.5rem}
+.stavke-head h3{margin:0}
+#add{display:inline-flex;align-items:center;gap:.35rem;padding:.4rem .7rem;font-size:.9rem;white-space:nowrap}
+#add svg{width:1em;height:1em;fill:currentColor}
+.rm{background:var(--red);padding:.2rem .55rem}
+button[type=submit]{margin-top:1rem}
+</style>
+</head><body>
+<h1>Novi račun</h1>
+<form method="post" action="/invoices">
+  <p><small>Broj računa se generira automatski (redni-broj/mjesec/godina).</small></p>
+
+  <label>Datum</label>
+  <input type="date" name="issue_date" value="{{.IssueDate}}" required class="{{if .Errors.issue_date}}bad{{end}}">
+  {{with .Errors.issue_date}}<span class="err">{{.}}</span>{{end}}
+
+  <label>Kupac</label>
+  <select name="customer_id" required class="{{if .Errors.customer_id}}bad{{end}}">
+    <option value="">-- odaberite kupca --</option>
+    {{$cid := .CustomerID}}{{range .Customers}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) $cid}} selected{{end}}>{{.Name}}</option>{{end}}
+  </select>
+  {{with .Errors.customer_id}}<span class="err">{{.}}</span>{{end}}
+
+  <label>Napomena</label><input name="note" value="{{.Note}}">
+
+  <div class="stavke-head">
+    <h3>Stavke</h3>
+    <button type="button" id="add" title="Dodaj stavku">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+      Dodaj stavku
+    </button>
+  </div>
+  {{with .Errors.items}}<span class="err">{{.}}</span>{{end}}
+  <div class="scroll">
+  <table><thead><tr><th>Opis</th><th>Količina</th><th>Cijena (€)</th><th></th></tr></thead>
+  <tbody id="items">
+    {{range .Items}}<tr class="row"><td><input name="description" value="{{.Description}}"></td><td><input name="quantity" value="{{.Quantity}}"></td><td><input name="unit_price" value="{{.UnitPrice}}" placeholder="0,00"></td><td><button type="button" class="rm" tabindex="-1" title="Ukloni">&times;</button></td></tr>
+    {{end}}
+  </tbody></table>
+  </div>
+
+  <div><button type="submit">Spremi račun</button></div>
+</form>
+
+<script>
+const items = document.getElementById('items');
+document.getElementById('add').onclick = () => {
+  const row = items.rows[0].cloneNode(true);
+  row.querySelectorAll('input').forEach(i => { i.value = i.name === 'quantity' ? '1' : ''; });
+  items.appendChild(row);
+};
+items.addEventListener('click', e => {
+  if (e.target.classList.contains('rm') && items.rows.length > 1) e.target.closest('tr').remove();
+});
+</script>
+</body></html>{{end}}

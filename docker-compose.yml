@@ -1,0 +1,10 @@
+services:
+  pausalac:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - pausalac-data:/data   # SQLite file persists here; back up = copy this volume
+
+volumes:
+  pausalac-data:
