@@ -20,9 +20,43 @@ import (
 //go:embed templates/*.html
 var assets embed.FS
 
-var tmpl = template.Must(template.New("").Funcs(template.FuncMap{
-	"eur": func(cents int64) string { return strconv.FormatFloat(float64(cents)/100, 'f', 2, 64) },
-}).ParseFS(assets, "templates/*.html"))
+// One parsed template set per language; the "T" func is bound to that language
+// at parse time, so templates just call {{T "key"}} with no per-request cost.
+var tmpls = parseTemplates()
+
+func parseTemplates() map[string]*template.Template {
+	eur := func(cents int64) string { return strconv.FormatFloat(float64(cents)/100, 'f', 2, 64) }
+	m := map[string]*template.Template{}
+	for lang := range messages {
+		l := lang
+		m[lang] = template.Must(template.New("").Funcs(template.FuncMap{
+			"eur": eur,
+			"T":   func(key string) string { return tr(l, key) },
+		}).ParseFS(assets, "templates/*.html"))
+	}
+	return m
+}
+
+// langOf resolves the request language from the "lang" cookie, defaulting to hr.
+func langOf(r *http.Request) string {
+	if c, err := r.Cookie("lang"); err == nil && messages[c.Value] != nil {
+		return c.Value
+	}
+	return defaultLang
+}
+
+// withLang lets ?lang=xx set the language: it stores the choice in a cookie and
+// redirects to the clean URL so the param doesn't linger.
+func withLang(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if l := r.URL.Query().Get("lang"); messages[l] != nil {
+			http.SetCookie(w, &http.Cookie{Name: "lang", Value: l, Path: "/", MaxAge: 31536000})
+			http.Redirect(w, r, r.URL.Path, http.StatusSeeOther)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 type Invoice struct {
 	ID              int64
@@ -75,7 +109,7 @@ func main() {
 
 	addr := ":" + cmp(os.Getenv("PORT"), "8080")
 	log.Printf("pausalac listening on %s (db=%s)", addr, dbPath)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Fatal(http.ListenAndServe(addr, withLang(mux)))
 }
 
 func cmp(v, def string) string {
@@ -109,7 +143,7 @@ func listInvoices(db *sql.DB) http.HandlerFunc {
 			}
 			invs = append(invs, v)
 		}
-		render(w, "list.html", invs)
+		render(w, r, "list.html", invs)
 	}
 }
 
@@ -128,8 +162,8 @@ type invoiceForm struct {
 	Customers  []Customer
 }
 
-// renderNew loads customers, pads the item rows to at least 3, and renders the form.
-func renderNew(w http.ResponseWriter, db *sql.DB, f invoiceForm) {
+// renderNew loads customers, ensures at least one item row, and renders the form.
+func renderNew(w http.ResponseWriter, r *http.Request, db *sql.DB, f invoiceForm) {
 	custs, err := allCustomers(db)
 	if err != nil {
 		httpErr(w, err)
@@ -139,12 +173,12 @@ func renderNew(w http.ResponseWriter, db *sql.DB, f invoiceForm) {
 	if len(f.Items) == 0 {
 		f.Items = append(f.Items, itemInput{Quantity: "1"})
 	}
-	render(w, "new.html", f)
+	render(w, r, "new.html", f)
 }
 
 func newInvoice(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		renderNew(w, db, invoiceForm{IssueDate: time.Now().Format("2006-01-02")})
+		renderNew(w, r, db, invoiceForm{IssueDate: time.Now().Format("2006-01-02")})
 	}
 }
 
@@ -167,16 +201,17 @@ func createInvoice(db *sql.DB) http.HandlerFunc {
 		}
 
 		// Validate; collect per-field errors and redisplay the form on any failure.
+		lang := langOf(r)
 		errs := map[string]string{}
 		issued, dateErr := time.Parse("2006-01-02", f.IssueDate)
 		if f.IssueDate == "" {
-			errs["issue_date"] = "Datum izdavanja je obavezan."
+			errs["issue_date"] = tr(lang, "err_date_required")
 		} else if dateErr != nil {
-			errs["issue_date"] = "Neispravan datum."
+			errs["issue_date"] = tr(lang, "err_date_invalid")
 		}
 		customerID, _ := strconv.ParseInt(f.CustomerID, 10, 64)
 		if customerID == 0 {
-			errs["customer_id"] = "Odaberite kupca."
+			errs["customer_id"] = tr(lang, "err_customer_required")
 		}
 		validItems := 0
 		for _, it := range f.Items {
@@ -185,12 +220,12 @@ func createInvoice(db *sql.DB) http.HandlerFunc {
 			}
 		}
 		if validItems == 0 {
-			errs["items"] = "Unesite barem jednu stavku (opis)."
+			errs["items"] = tr(lang, "err_items_required")
 		}
 		if len(errs) > 0 {
 			f.Errors = errs
 			w.WriteHeader(http.StatusUnprocessableEntity)
-			renderNew(w, db, f)
+			renderNew(w, r, db, f)
 			return
 		}
 
@@ -284,7 +319,7 @@ func viewInvoice(db *sql.DB) http.HandlerFunc {
 			v.TotalCents += it.LineTotalCents
 			items = append(items, it)
 		}
-		render(w, "view.html", map[string]any{"Invoice": v, "Items": items, "Company": company})
+		render(w, r, "view.html", map[string]any{"Invoice": v, "Items": items, "Company": company})
 	}
 }
 
@@ -343,9 +378,13 @@ func at(s []string, i int) string {
 	return ""
 }
 
-func render(w http.ResponseWriter, name string, data any) {
+func render(w http.ResponseWriter, r *http.Request, name string, data any) {
+	t := tmpls[langOf(r)]
+	if t == nil {
+		t = tmpls[defaultLang]
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
+	if err := t.ExecuteTemplate(w, name, data); err != nil {
 		log.Print(err)
 	}
 }

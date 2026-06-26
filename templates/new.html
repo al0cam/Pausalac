@@ -1,5 +1,5 @@
 {{define "new.html"}}<!doctype html>
-<html lang="hr"><head>{{template "head" .}}<title>Novi račun</title>
+<html lang="{{T "lang_code"}}"><head>{{template "head" .}}<title>{{T "new_invoice"}}</title>
 <style>
 td{padding:.25rem}
 #items td:first-child{min-width:11rem}
@@ -12,40 +12,41 @@ td{padding:.25rem}
 button[type=submit]{margin-top:1rem}
 </style>
 </head><body>
-<h1>Novi račun</h1>
+{{template "nav" "new"}}
+<h1>{{T "new_invoice"}}</h1>
 <form method="post" action="/invoices">
-  <p><small>Broj računa se generira automatski (redni-broj/mjesec/godina).</small></p>
+  <p><small>{{T "number_auto"}}</small></p>
 
-  <label>Datum</label>
+  <label>{{T "date"}}</label>
   <input type="date" name="issue_date" value="{{.IssueDate}}" required class="{{if .Errors.issue_date}}bad{{end}}">
   {{with .Errors.issue_date}}<span class="err">{{.}}</span>{{end}}
 
-  <label>Kupac</label>
+  <label>{{T "customer"}}</label>
   <select name="customer_id" required class="{{if .Errors.customer_id}}bad{{end}}">
-    <option value="">-- odaberite kupca --</option>
+    <option value="">{{T "choose_customer"}}</option>
     {{$cid := .CustomerID}}{{range .Customers}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) $cid}} selected{{end}}>{{.Name}}</option>{{end}}
   </select>
   {{with .Errors.customer_id}}<span class="err">{{.}}</span>{{end}}
 
-  <label>Napomena</label><input name="note" value="{{.Note}}">
+  <label>{{T "note"}}</label><input name="note" value="{{.Note}}">
 
   <div class="stavke-head">
-    <h3>Stavke</h3>
-    <button type="button" id="add" title="Dodaj stavku">
+    <h3>{{T "items"}}</h3>
+    <button type="button" id="add" title="{{T "add_item"}}">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
-      Dodaj stavku
+      {{T "add_item"}}
     </button>
   </div>
   {{with .Errors.items}}<span class="err">{{.}}</span>{{end}}
   <div class="scroll">
-  <table><thead><tr><th>Opis</th><th>Količina</th><th>Cijena (€)</th><th></th></tr></thead>
+  <table><thead><tr><th>{{T "description"}}</th><th>{{T "quantity"}}</th><th>{{T "price_eur"}}</th><th></th></tr></thead>
   <tbody id="items">
-    {{range .Items}}<tr class="row"><td><input name="description" value="{{.Description}}"></td><td><input name="quantity" value="{{.Quantity}}"></td><td><input name="unit_price" value="{{.UnitPrice}}" placeholder="0,00"></td><td><button type="button" class="rm" tabindex="-1" title="Ukloni">&times;</button></td></tr>
+    {{range .Items}}<tr class="row"><td><input name="description" value="{{.Description}}"></td><td><input name="quantity" value="{{.Quantity}}"></td><td><input name="unit_price" value="{{.UnitPrice}}" placeholder="0,00"></td><td><button type="button" class="rm" tabindex="-1" title="{{T "remove"}}">&times;</button></td></tr>
     {{end}}
   </tbody></table>
   </div>
 
-  <div><button type="submit">Spremi račun</button></div>
+  <div><button type="submit">{{T "save_invoice"}}</button></div>
 </form>
 
 <script>

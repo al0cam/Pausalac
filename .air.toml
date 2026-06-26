@@ -1,0 +1,9 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/pausalac ."
+  entrypoint = "./tmp/pausalac"
+  include_ext = ["go", "html", "sql"]
+  exclude_dir = ["tmp", "data"]
+  stop_on_error = true

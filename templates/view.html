@@ -1,48 +1,48 @@
 {{define "view.html"}}<!doctype html>
-<html lang="hr"><head>{{template "head" .}}<title>Račun {{.Invoice.Number}}</title>
+<html lang="{{T "lang_code"}}"><head>{{template "head" .}}<title>{{T "invoice"}} {{.Invoice.Number}}</title>
 <style>
-tfoot td{font-weight:bold;border-top:2px solid #333}
+tfoot td{font-weight:bold;border-top:2px solid var(--fg)}
 .head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1rem;margin-top:1rem}
 .issuer{font-size:.95rem}.issuer b{font-size:1.1rem}
-.party{border:1px solid #ddd;padding:.75rem;border-radius:4px;flex:1 1 240px}
-.foot{margin-top:2rem;padding-top:.75rem;border-top:1px solid #999;font-size:.8rem;color:#555}
+.party{border:1px solid var(--line);padding:.75rem;border-radius:4px;flex:1 1 240px}
+.foot{margin-top:2rem;padding-top:.75rem;border-top:1px solid var(--line);font-size:.8rem;color:var(--muted)}
 @media print{a,.noprint{display:none}}
 </style>
 </head><body>
-<p class="noprint"><a href="/">&larr; Svi računi</a></p>
+{{template "nav" "" }}
 
 <div class="head">
   <div class="issuer">
     <b>{{.Company.Name}}</b><br>
-    vl. {{.Company.Owner}}<br>
+    {{T "owner_abbr"}} {{.Company.Owner}}<br>
     {{.Company.Address}}<br>
     OIB: {{.Company.OIB}}
   </div>
   <div class="party">
-    <small>Kupac:</small><br>
+    <small>{{T "customer_label"}}</small><br>
     <b>{{.Invoice.Customer}}</b><br>
     {{.Invoice.CustomerAddress}}<br>
     {{if .Invoice.CustomerOIB}}OIB: {{.Invoice.CustomerOIB}}{{end}}
   </div>
 </div>
 
-<h1>Račun {{.Invoice.Number}}</h1>
-<p>Mjesto i datum izdavanja: <b>{{.Company.Place}}, {{.Invoice.IssueDate}}</b>
-{{if .Invoice.Note}}<br>Napomena: {{.Invoice.Note}}{{end}}</p>
+<h1>{{T "invoice"}} {{.Invoice.Number}}</h1>
+<p>{{T "place_date"}}: <b>{{.Company.Place}}, {{.Invoice.IssueDate}}</b>
+{{if .Invoice.Note}}<br>{{T "note"}}: {{.Invoice.Note}}{{end}}</p>
 
 <div class="scroll">
-<table><thead><tr><th>Opis</th><th class="r">Kol.</th><th class="r">Cijena (€)</th><th class="r">Iznos (€)</th></tr></thead>
+<table><thead><tr><th>{{T "description"}}</th><th class="r">{{T "qty_short"}}</th><th class="r">{{T "price_eur"}}</th><th class="r">{{T "amount_eur"}}</th></tr></thead>
 <tbody>
 {{range .Items}}<tr><td>{{.Description}}</td><td class="r">{{.Quantity}}</td><td class="r">{{eur .UnitPriceCents}}</td><td class="r">{{eur .LineTotalCents}}</td></tr>{{end}}
 </tbody>
-<tfoot><tr><td colspan="3" class="r">Ukupno</td><td class="r">{{eur .Invoice.TotalCents}}</td></tr></tfoot>
+<tfoot><tr><td colspan="3" class="r">{{T "total"}}</td><td class="r">{{eur .Invoice.TotalCents}}</td></tr></tfoot>
 </table>
 </div>
 
-<p>Račun ispostavio: {{.Company.Owner}}</p>
+<p>{{T "issued_by"}}: {{.Company.Owner}}</p>
 
 <div class="foot">
-  {{.Company.Name}}, vl. {{.Company.Owner}}, {{.Company.Address}}, OIB: {{.Company.OIB}}
+  {{.Company.Name}}, {{T "owner_abbr"}} {{.Company.Owner}}, {{.Company.Address}}, OIB: {{.Company.OIB}}
   {{if .Company.IBAN}}<br>IBAN: {{.Company.IBAN}}{{end}}
 </div>
 </body></html>{{end}}

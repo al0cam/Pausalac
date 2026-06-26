@@ -1,12 +1,15 @@
 {{define "head"}}<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root{--blue:#1565c0;--red:#c62828}
+:root{color-scheme:light;--bg:#fff;--fg:#222;--line:#ddd;--muted:#555;--blue:#1565c0;--red:#c62828}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#1a1a1a;--fg:#e6e6e6;--line:#3a3a3a;--muted:#aaa;--blue:#5b9bd5;--red:#ef5350}}
+[data-theme=light]{color-scheme:light;--bg:#fff;--fg:#222;--line:#ddd;--muted:#555;--blue:#1565c0;--red:#c62828}
+[data-theme=dark]{color-scheme:dark;--bg:#1a1a1a;--fg:#e6e6e6;--line:#3a3a3a;--muted:#aaa;--blue:#5b9bd5;--red:#ef5350}
 *{box-sizing:border-box}
-body{font-family:system-ui,sans-serif;max-width:820px;margin:2rem auto;padding:0 1rem;color:#222}
+body{font-family:system-ui,sans-serif;max-width:820px;margin:2rem auto;padding:0 1rem;background:var(--bg);color:var(--fg)}
 h1{font-size:1.5rem}
 table{width:100%;border-collapse:collapse;margin-top:1rem}
-th,td{padding:.5rem;border-bottom:1px solid #ddd;text-align:left}
+th,td{padding:.5rem;border-bottom:1px solid var(--line);text-align:left}
 .r{text-align:right}
 .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}  /* tables scroll instead of overflowing the page */
 a.btn,button{display:inline-block;padding:.5rem 1rem;background:var(--blue);color:#fff;border:0;border-radius:4px;cursor:pointer;text-decoration:none;font:inherit}
@@ -14,5 +17,40 @@ label{display:block;margin:.75rem 0 .25rem}
 input,select{padding:.5rem;width:100%;font:inherit}  /* 16px font avoids iOS zoom-on-focus */
 input.bad,select.bad{border:1px solid var(--red)}
 .err{color:var(--red);font-size:.85rem;display:block;margin-top:.2rem}
+nav{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;padding-bottom:.75rem;margin-bottom:1rem;border-bottom:1px solid var(--line)}
+nav .brand{font-weight:bold;color:var(--blue);text-decoration:none;margin-right:auto}
+nav a{color:var(--fg);text-decoration:none}
+nav a.active{color:var(--blue);font-weight:bold}
+nav .lang{display:flex;gap:.4rem;font-size:.85rem}
+nav .toggle{background:none;color:var(--fg);border:1px solid var(--line);padding:.25rem .55rem;font-size:1rem;line-height:1}
 @media(max-width:600px){body{margin:1rem auto}h1{font-size:1.25rem}th,td{padding:.4rem}}
-</style>{{end}}
+@media print{nav{display:none}}
+</style>
+<script>
+(function(){
+  var t = localStorage.getItem('theme');
+  if (t) document.documentElement.dataset.theme = t;  // apply before paint to avoid flash
+  addEventListener('DOMContentLoaded', function(){
+    var b = document.getElementById('theme');
+    if (!b) return;
+    b.onclick = function(){
+      var cur = document.documentElement.dataset.theme
+        || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      var next = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = next;
+      localStorage.setItem('theme', next);
+    };
+  });
+})();
+</script>{{end}}
+
+{{define "nav"}}<nav>
+  <a class="brand" href="/">Paušalac</a>
+  <a href="/"{{if eq . "list"}} class="active"{{end}}>{{T "invoices"}}</a>
+  <a href="/invoices/new"{{if eq . "new"}} class="active"{{end}}>{{T "new_invoice"}}</a>
+  <span class="lang">
+    <a href="?lang=hr"{{if eq (T "lang_code") "hr"}} class="active"{{end}}>HR</a>
+    <a href="?lang=en"{{if eq (T "lang_code") "en"}} class="active"{{end}}>EN</a>
+  </span>
+  <button type="button" id="theme" class="toggle" title="{{T "toggle_theme"}}" aria-label="{{T "toggle_theme"}}">&#9680;</button>
+</nav>{{end}}

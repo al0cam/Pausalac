@@ -91,6 +91,12 @@ The entire app state is one SQLite file. Back up = copy `DB_PATH` (or the
 - [ ] Fiskalizacija 2.0 e-invoice (UBL/CII XML) issuance & receipt
 - [ ] Authentication / multi-tenant (one SQLite file per customer for hosted)
 
+## TODO
+
+- [ ] **Customer loading via QR** — scan a QR code to fill in customer details for faster invoice creation
+- [ ] **Excel import** — import values from existing Excel files previously used for invoice creation
+- [ ] **Knjiga prometa (KPR)** — the mandatory turnover ledger, aggregated from invoices
+
 ## Disclaimer
 
 Calculations are informational. Verify against the

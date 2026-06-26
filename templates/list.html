@@ -1,12 +1,13 @@
 {{define "list.html"}}<!doctype html>
-<html lang="hr"><head>{{template "head" .}}<title>Računi</title></head><body>
-<h1>Računi</h1>
-<p><a class="btn" href="/invoices/new">+ Novi račun</a></p>
+<html lang="{{T "lang_code"}}"><head>{{template "head" .}}<title>{{T "invoices"}}</title></head><body>
+{{template "nav" "list"}}
+<h1>{{T "invoices"}}</h1>
+<p><a class="btn" href="/invoices/new">+ {{T "new_invoice"}}</a></p>
 <div class="scroll">
-<table><thead><tr><th>Broj</th><th>Datum</th><th>Kupac</th><th class="r">Iznos (€)</th></tr></thead>
+<table><thead><tr><th>{{T "number"}}</th><th>{{T "date"}}</th><th>{{T "customer"}}</th><th class="r">{{T "amount_eur"}}</th></tr></thead>
 <tbody>
 {{range .}}<tr><td><a href="/invoices/{{.ID}}">{{.Number}}</a></td><td>{{.IssueDate}}</td><td>{{.Customer}}</td><td class="r">{{eur .TotalCents}}</td></tr>
-{{else}}<tr><td colspan="4">Nema računa.</td></tr>{{end}}
+{{else}}<tr><td colspan="4">{{T "no_invoices"}}</td></tr>{{end}}
 </tbody></table>
 </div>
 </body></html>{{end}}
