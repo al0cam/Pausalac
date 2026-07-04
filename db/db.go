@@ -53,6 +53,12 @@ func migrate(conn *sql.DB) error {
 		// backfill place for the seeded demo company only (matched by its OIB), so
 		// pre-existing dev databases show a place without clobbering a real company.
 		`UPDATE company SET place = 'Zagreb' WHERE oib = '11111111111' AND place = ''`,
+		`ALTER TABLE invoices ADD COLUMN deleted_at TEXT`,
+		`ALTER TABLE company ADD COLUMN bank TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE company ADD COLUMN owner_address TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE invoice_items ADD COLUMN unit TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE invoice_items ADD COLUMN discount_pct REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE company ADD COLUMN vat_exempt INTEGER NOT NULL DEFAULT 1`,
 	}
 	for _, s := range stmts {
 		if _, err := conn.Exec(s); err != nil && !strings.Contains(err.Error(), "duplicate column name") {

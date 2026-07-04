@@ -1,0 +1,82 @@
+{{define "settings.html"}}<!DOCTYPE html>
+<html lang="{{T "lang_code"}}">
+  <head>
+    {{template "head" .}}<title>{{T "settings"}}</title>
+    <style>
+        .ok {
+            color: #2e7d32;
+            font-weight: bold
+        }
+
+        @media(prefers-color-scheme:dark) {
+            .ok {
+                color: #81c784
+            }
+        }
+
+        button[type=submit] {
+            margin-top: 1.5rem
+        }
+
+        .check {
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            margin-top: 1rem
+        }
+
+        .check input {
+            width: auto
+        }
+    </style>
+  </head>
+  <body>
+    {{template "nav" "settings"}}
+    <h1>{{T "settings"}}</h1>
+    {{if .Saved}}
+    <p class="ok">{{T "settings_saved"}}</p>
+    {{end}}
+    <form method="post" action="/settings">
+      <label>{{T "company_name"}}</label>
+      <input name="name"
+             value="{{.Company.Name}}"
+             required
+             class="{{if .Errors.name}}bad{{end}}">
+      {{with .Errors.name}}<span class="err">{{.}}</span>{{end}}
+      <label>{{T "company_owner"}}</label>
+      <input name="owner"
+             value="{{.Company.Owner}}"
+             required
+             class="{{if .Errors.owner}}bad{{end}}">
+      {{with .Errors.owner}}<span class="err">{{.}}</span>{{end}}
+      <label>{{template "abbr-oib"}}</label>
+      <input name="oib"
+             value="{{.Company.OIB}}"
+             required
+             class="{{if .Errors.oib}}bad{{end}}">
+      {{with .Errors.oib}}<span class="err">{{.}}</span>{{end}}
+      <label>{{T "company_address"}}</label>
+      <input name="address" value="{{.Company.Address}}">
+      <label>{{T "owner_address"}}</label>
+      <input name="owner_address" value="{{.Company.OwnerAddress}}">
+      <label>{{T "company_place"}}</label>
+      <input name="place" value="{{.Company.Place}}">
+      <label>{{template "abbr-iban"}}</label>
+      <input name="iban" value="{{.Company.IBAN}}">
+      <label>{{T "company_bank"}}</label>
+      <input name="bank" value="{{.Company.Bank}}">
+      <label class="check">
+        <input type="checkbox"
+               name="vat_exempt"
+               {{if .Company.VatExempt}}
+               checked
+               {{end}}>
+        {{T "vat_exempt_label"}}
+      </label>
+      <div>
+        <button type="submit">{{T "save"}}</button>
+      </div>
+    </form>
+  </body>
+</html>
+{{end}}

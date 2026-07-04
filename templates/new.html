@@ -1,63 +1,271 @@
-{{define "new.html"}}<!doctype html>
-<html lang="{{T "lang_code"}}"><head>{{template "head" .}}<title>{{T "new_invoice"}}</title>
-<style>
-td{padding:.25rem}
-#items td:first-child{min-width:11rem}
-.row td:nth-child(1){width:55%}
-.stavke-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-top:1.5rem}
-.stavke-head h3{margin:0}
-#add{display:inline-flex;align-items:center;gap:.35rem;padding:.4rem .7rem;font-size:.9rem;white-space:nowrap}
-#add svg{width:1em;height:1em;fill:currentColor}
-.rm{background:var(--red);padding:.2rem .55rem}
-button[type=submit]{margin-top:1rem}
-</style>
-</head><body>
-{{template "nav" "new"}}
-<h1>{{T "new_invoice"}}</h1>
-<form method="post" action="/invoices">
-  <p><small>{{T "number_auto"}}</small></p>
+{{define "new.html"}}<!DOCTYPE html>
+<html lang="{{T "lang_code"}}">
+  <head>
+    {{template "head" .}}<title>{{T "new_invoice"}}</title>
+    <style>
+        td {
+            padding: .25rem
+        }
 
-  <label>{{T "date"}}</label>
-  <input type="date" name="issue_date" value="{{.IssueDate}}" required class="{{if .Errors.issue_date}}bad{{end}}">
-  {{with .Errors.issue_date}}<span class="err">{{.}}</span>{{end}}
+        #items td:first-child {
+            min-width: 11rem
+        }
 
-  <label>{{T "customer"}}</label>
-  <select name="customer_id" required class="{{if .Errors.customer_id}}bad{{end}}">
-    <option value="">{{T "choose_customer"}}</option>
-    {{$cid := .CustomerID}}{{range .Customers}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) $cid}} selected{{end}}>{{.Name}}</option>{{end}}
+        .row td:nth-child(1) {
+            width: 50%
+        }
+
+        #items td:nth-child(2) {
+            width: 5rem
+        }
+
+        .stavke-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-top: 1.5rem
+        }
+
+        .stavke-head h3 {
+            margin: 0
+        }
+
+        .head-btns {
+            display: flex;
+            gap: .5rem
+        }
+
+        .head-btns button {
+            display: inline-flex;
+            align-items: center;
+            gap: .35rem;
+            padding: .4rem .7rem;
+            font-size: .9rem;
+            white-space: nowrap
+        }
+
+        .head-btns svg {
+            width: 1em;
+            height: 1em;
+            fill: currentColor
+        }
+
+        #catadd {
+            background: none;
+            color: var(--blue);
+            border: 1px solid var(--line)
+        }
+
+        .rm {
+            background: var(--red);
+            padding: .2rem .55rem
+        }
+
+        button[type=submit] {
+            margin-top: 1rem
+        }
+
+        dialog {
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: var(--bg);
+            color: var(--fg);
+            max-width: 440px;
+            width: 92%
+        }
+
+        dialog::backdrop {
+            background: rgba(0, 0, 0, .45)
+        }
+
+        .dlg-actions {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: .5rem;
+            margin-top: 1rem
+        }
+
+        .dlg-actions button {
+            margin: 0;
+            padding: .5rem 1rem
+        }
+
+        .dlg-actions #catcancel {
+            background: none;
+            color: var(--fg);
+            border: 1px solid var(--line)
+        }
+    </style>
+  </head>
+  <body>
+    {{template "nav" "new"}}
+    <h1>{{if .ID}}{{T "edit_invoice"}} {{.Number}}{{else}}{{T "new_invoice"}}{{end}}</h1>
+  <form method="post"
+        action="{{if .ID}}/invoices/{{.ID}}{{else}}/invoices{{end}}">
+    {{if not .ID}}
+    <p><small>{{T "number_auto"}}</small></p>
+    {{end}}
+    <label>{{T "date"}}</label>
+    <input type="date"
+           name="issue_date"
+           value="{{.IssueDate}}"
+           required
+           class="{{if .Errors.issue_date}}bad{{end}}">
+    {{with .Errors.issue_date}}<span class="err">{{.}}</span>{{end}}
+    <label>{{T "customer"}}</label>
+    <select name="customer_id"
+            required
+            class="{{if .Errors.customer_id}}bad{{end}}">
+      <option value="">{{T "choose_customer"}}</option>
+      {{$cid := .CustomerID}}{{range .Customers}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) $cid}} selected{{end}}>{{.Name}}
+    </option>
+    {{end}}
   </select>
   {{with .Errors.customer_id}}<span class="err">{{.}}</span>{{end}}
-
-  <label>{{T "note"}}</label><input name="note" value="{{.Note}}">
-
+  <label>{{T "note"}}</label>
+  <input name="note" list="list-note" value="{{.Note}}">
   <div class="stavke-head">
     <h3>{{T "items"}}</h3>
-    <button type="button" id="add" title="{{T "add_item"}}">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
-      {{T "add_item"}}
-    </button>
+    <div class="head-btns">
+      <button type="button" id="catadd" title="{{T "catalog_add"}}">+ {{T "catalog"}}</button>
+      <button type="button" id="add" title="{{T "add_item"}}">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z" />
+        </svg>
+        {{T "add_item"}}
+      </button>
+    </div>
   </div>
   {{with .Errors.items}}<span class="err">{{.}}</span>{{end}}
   <div class="scroll">
-  <table><thead><tr><th>{{T "description"}}</th><th>{{T "quantity"}}</th><th>{{T "price_eur"}}</th><th></th></tr></thead>
-  <tbody id="items">
-    {{range .Items}}<tr class="row"><td><input name="description" value="{{.Description}}"></td><td><input name="quantity" value="{{.Quantity}}"></td><td><input name="unit_price" value="{{.UnitPrice}}" placeholder="0,00"></td><td><button type="button" class="rm" tabindex="-1" title="{{T "remove"}}">&times;</button></td></tr>
-    {{end}}
-  </tbody></table>
+    <table>
+      <thead>
+        <tr>
+          <th>{{T "description"}}</th>
+          <th><abbr title="{{T "unit_full"}}">{{T "unit_short"}}</abbr></th>
+          <th>{{T "quantity"}}</th>
+          <th>{{T "price_eur"}}</th>
+          <th>{{T "discount"}} %</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="items">
+        {{range .Items}}
+        <tr class="row">
+          <td>
+            <input name="description" list="list-product" value="{{.Description}}">
+          </td>
+          <td>
+            <input name="unit"
+                   list="list-unit"
+                   value="{{.Unit}}"
+                   placeholder="{{T "unit_short"}}">
+          </td>
+          <td>
+            <input name="quantity" value="{{.Quantity}}">
+          </td>
+          <td>
+            <input name="unit_price" value="{{.UnitPrice}}" placeholder="0,00">
+          </td>
+          <td>
+            <input name="discount" value="{{.Discount}}" placeholder="0">
+          </td>
+          <td>
+            <button type="button" class="rm" tabindex="-1" title="{{T "remove"}}">&times;</button>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
   </div>
-
-  <div><button type="submit">{{T "save_invoice"}}</button></div>
+  <div>
+    <button type="submit">{{T "save_invoice"}}</button>
+  </div>
 </form>
-
+<datalist id="list-product">{{range .Articles}}
+  <option value="{{.Name}}"
+          data-unit="{{.Unit}}"
+          data-price="{{eur .PriceCents}}"></option>
+{{end}}</datalist>
+<datalist id="list-unit">{{range .Catalog.Units}}
+  <option value="{{.}}"></option>
+{{end}}</datalist>
+<datalist id="list-note">{{range .Catalog.Notes}}
+  <option value="{{.}}"></option>
+{{end}}</datalist>
+<dialog id="catdlg">
+  <form id="catform">
+    <h3>{{T "catalog_add"}}</h3>
+    <label>{{T "catalog_kind"}}</label>
+    <select id="catkind">
+      <option value="unit">{{T "kind_unit"}}</option>
+      <option value="note">{{T "kind_note"}}</option>
+    </select>
+    <label>{{T "catalog_value"}}</label>
+    <input id="catvalue" required>
+    <div class="dlg-actions">
+      <button type="button" id="catcancel">{{T "cancel"}}</button>
+      <button type="submit">{{T "add"}}</button>
+    </div>
+  </form>
+</dialog>
 <script>
-const items = document.getElementById('items');
-document.getElementById('add').onclick = () => {
-  const row = items.rows[0].cloneNode(true);
-  row.querySelectorAll('input').forEach(i => { i.value = i.name === 'quantity' ? '1' : ''; });
-  items.appendChild(row);
-};
-items.addEventListener('click', e => {
-  if (e.target.classList.contains('rm') && items.rows.length > 1) e.target.closest('tr').remove();
-});
+    const items = document.getElementById('items');
+    document.getElementById('add').onclick = () => {
+        const row = items.rows[0].cloneNode(true);
+        row.querySelectorAll('input').forEach(i => {
+            i.value = i.name === 'quantity' ? '1' : '';
+        });
+        items.appendChild(row);
+    };
+    items.addEventListener('click', e => {
+        if (e.target.classList.contains('rm') && items.rows.length > 1) e.target.closest('tr').remove();
+    });
+
+    // Picking a known article autofills that row's unit and price (only when empty,
+    // so it never clobbers something already typed).
+    items.addEventListener('input', e => {
+        if (e.target.name !== 'description') return;
+        const opt = [...document.getElementById('list-product').options].find(o => o.value === e.target.value);
+        if (!opt || opt.dataset.price === undefined) return;
+        const row = e.target.closest('tr');
+        const unit = row.querySelector('[name=unit]'),
+            price = row.querySelector('[name=unit_price]');
+        if (unit && !unit.value) unit.value = opt.dataset.unit || '';
+        if (price && !price.value) price.value = opt.dataset.price;
+    });
+
+    // Add a šifrarnik value on the spot: persist it, then drop it into the matching
+    // datalist so it is immediately pickable without reloading.
+    const dlg = document.getElementById('catdlg');
+    document.getElementById('catadd').onclick = () => dlg.showModal();
+    document.getElementById('catcancel').onclick = () => dlg.close();
+    document.getElementById('catform').addEventListener('submit', async e => {
+        e.preventDefault();
+        const kind = document.getElementById('catkind').value;
+        const value = document.getElementById('catvalue').value.trim();
+        if (!value) return;
+        const res = await fetch('/catalog', {
+            method: 'POST',
+            body: new URLSearchParams({
+                kind,
+                value
+            })
+        });
+        if (res.ok) {
+            const list = document.getElementById('list-' + kind);
+            if (list) {
+                const o = document.createElement('option');
+                o.value = value;
+                list.appendChild(o);
+            }
+            document.getElementById('catvalue').value = '';
+            dlg.close();
+        }
+    });
 </script>
-</body></html>{{end}}
+</body>
+</html>
+{{end}}

@@ -1,48 +1,123 @@
-{{define "view.html"}}<!doctype html>
-<html lang="{{T "lang_code"}}"><head>{{template "head" .}}<title>{{T "invoice"}} {{.Invoice.Number}}</title>
-<style>
-tfoot td{font-weight:bold;border-top:2px solid var(--fg)}
-.head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:1rem;margin-top:1rem}
-.issuer{font-size:.95rem}.issuer b{font-size:1.1rem}
-.party{border:1px solid var(--line);padding:.75rem;border-radius:4px;flex:1 1 240px}
-.foot{margin-top:2rem;padding-top:.75rem;border-top:1px solid var(--line);font-size:.8rem;color:var(--muted)}
-@media print{a,.noprint{display:none}}
-</style>
-</head><body>
-{{template "nav" "" }}
+{{define "view.html"}}<!DOCTYPE html>
+<html lang="{{T "lang_code"}}">
+  <head>
+    {{template "head" .}}<title>{{T "invoice"}} {{.Invoice.Number}}</title>
+    <style>
+        .head {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-top: 1rem
+        }
 
-<div class="head">
-  <div class="issuer">
-    <b>{{.Company.Name}}</b><br>
-    {{T "owner_abbr"}} {{.Company.Owner}}<br>
-    {{.Company.Address}}<br>
-    OIB: {{.Company.OIB}}
-  </div>
-  <div class="party">
-    <small>{{T "customer_label"}}</small><br>
-    <b>{{.Invoice.Customer}}</b><br>
-    {{.Invoice.CustomerAddress}}<br>
-    {{if .Invoice.CustomerOIB}}OIB: {{.Invoice.CustomerOIB}}{{end}}
-  </div>
-</div>
+        .issuer {
+            font-size: .95rem
+        }
 
-<h1>{{T "invoice"}} {{.Invoice.Number}}</h1>
-<p>{{T "place_date"}}: <b>{{.Company.Place}}, {{.Invoice.IssueDate}}</b>
-{{if .Invoice.Note}}<br>{{T "note"}}: {{.Invoice.Note}}{{end}}</p>
+        .issuer b {
+            font-size: 1.1rem
+        }
 
-<div class="scroll">
-<table><thead><tr><th>{{T "description"}}</th><th class="r">{{T "qty_short"}}</th><th class="r">{{T "price_eur"}}</th><th class="r">{{T "amount_eur"}}</th></tr></thead>
-<tbody>
-{{range .Items}}<tr><td>{{.Description}}</td><td class="r">{{.Quantity}}</td><td class="r">{{eur .UnitPriceCents}}</td><td class="r">{{eur .LineTotalCents}}</td></tr>{{end}}
-</tbody>
-<tfoot><tr><td colspan="3" class="r">{{T "total"}}</td><td class="r">{{eur .Invoice.TotalCents}}</td></tr></tfoot>
-</table>
-</div>
+        .party {
+            border: 1px solid var(--line);
+            padding: .75rem;
+            border-radius: 4px;
+            flex: 1 1 240px
+        }
 
-<p>{{T "issued_by"}}: {{.Company.Owner}}</p>
+        .foot {
+            margin-top: 2rem;
+            padding-top: .75rem;
+            border-top: 1px solid var(--line);
+            font-size: .8rem;
+            color: var(--muted)
+        }
 
-<div class="foot">
-  {{.Company.Name}}, {{T "owner_abbr"}} {{.Company.Owner}}, {{.Company.Address}}, OIB: {{.Company.OIB}}
-  {{if .Company.IBAN}}<br>IBAN: {{.Company.IBAN}}{{end}}
-</div>
-</body></html>{{end}}
+        .deleted {
+            background: var(--red);
+            color: #fff;
+            padding: .5rem .75rem;
+            border-radius: 4px
+        }
+
+        .actions {
+            display: flex;
+            gap: 1rem
+        }
+
+        .actions a {
+            color: var(--blue);
+            display: inline-flex
+        }
+
+        .actions svg {
+            width: 1.4rem;
+            height: 1.4rem;
+            fill: currentColor;
+            display: block
+        }
+
+        @media print {
+
+            a,
+            .noprint {
+                display: none
+            }
+        }
+    </style>
+  </head>
+  <body>
+    {{template "nav" "" }}
+    {{if .Invoice.Deleted}}
+    <p class="deleted noprint">{{T "deleted_notice"}}</p>
+    {{end}}
+    <p class="noprint actions">
+      {{if not .Invoice.Deleted}}<a href="/invoices/{{.Invoice.ID}}/edit"
+   title="{{T "edit"}}"
+   aria-label="{{T "edit"}}">{{template "icon-edit"}}</a>{{end}}
+      <a href="/invoices/{{.Invoice.ID}}/history"
+         title="{{T "history"}}"
+         aria-label="{{T "history"}}">{{template "icon-history"}}</a>
+    </p>
+    <div class="head">
+      <div class="issuer">
+        <b>{{.Company.Name}}</b>
+        <br>
+        {{T "owner_abbr"}} {{.Company.Owner}}
+        <br>
+        {{.Company.Address}}
+        <br>
+        {{template "abbr-oib"}}: {{.Company.OIB}}
+      </div>
+      <div class="party">
+        <small>{{T "customer_label"}}</small>
+        <br>
+        <b>{{.Invoice.Customer}}</b>
+        <br>
+        {{.Invoice.CustomerAddress}}
+        <br>
+        {{if .Invoice.CustomerOIB}}{{template "abbr-oib"}}: {{.Invoice.CustomerOIB}}{{end}}
+      </div>
+    </div>
+    <h1>{{T "invoice"}} {{.Invoice.Number}}</h1>
+    <p>
+      {{T "place_date"}}: <b>{{.Company.Place}}, {{.Invoice.IssueDate}}</b>
+      {{if .Invoice.Note}}
+      <br>
+      {{T "note"}}: {{.Invoice.Note}}{{end}}
+    </p>
+    {{template "items-table" (dict "Items" .Items "Totals" .Totals "VatExempt" .Company.VatExempt)}}
+    <p>{{T "issued_by"}}: {{.Company.Owner}}</p>
+    <div class="foot">
+      {{.Company.Name}}, {{T "owner_abbr"}} {{.Company.Owner}}, {{.Company.Address}}, {{template "abbr-oib"}}: {{.Company.OIB}}
+      {{if and .Company.OwnerAddress (ne .Company.OwnerAddress .Company.Address)}}
+      <br>
+      {{T "owner_address"}}: {{.Company.OwnerAddress}}{{end}}
+      {{if .Company.IBAN}}
+      <br>
+      {{template "abbr-iban"}}: {{.Company.IBAN}}{{if .Company.Bank}} {{T "iban_at"}} {{.Company.Bank}}{{end}}{{end}}
+    </div>
+  </body>
+</html>
+{{end}}

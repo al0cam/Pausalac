@@ -1,11 +1,11 @@
-{{define "list.html"}}<!DOCTYPE html>
+{{define "articles.html"}}<!DOCTYPE html>
 <html lang="{{T "lang_code"}}">
   <head>
-    {{template "head" .}}<title>{{T "invoices"}}</title>
+    {{template "head" .}}<title>{{T "articles"}}</title>
     <style>
         .actions {
             display: flex;
-            justify-content: space-around;
+            gap: 1rem;
             align-items: center
         }
 
@@ -37,41 +37,33 @@
     </style>
   </head>
   <body>
-    {{template "nav" "list"}}
-    <h1>{{T "invoices"}}</h1>
-    <p><a class="btn" href="/invoices/new">+ {{T "new_invoice"}}</a></p>
+    {{template "nav" "articles"}}
+    <h1>{{T "articles"}}</h1>
+    <p><a class="btn" href="/articles/new">+ {{T "new_article"}}</a></p>
     <div class="scroll">
       <table>
         <thead>
           <tr>
-            <th>{{T "number"}}</th>
-            <th>{{T "date"}}</th>
-            <th>{{T "customer"}}</th>
-            <th class="r">{{T "amount_eur"}}</th>
+            <th>{{T "article_name"}}</th>
+            <th><abbr title="{{T "unit_full"}}">{{T "unit_short"}}</abbr></th>
+            <th class="r">{{T "price_eur"}}</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          {{range .}}
+          {{range .Articles}}
           <tr>
-            <td><a href="/invoices/{{.ID}}">{{.Number}}</a></td>
-            <td>{{.IssueDate}}</td>
-            <td>{{.Customer}}</td>
-            <td class="r">{{eur .TotalCents}}</td>
+            <td>{{.Name}}</td>
+            <td>{{.Unit}}</td>
+            <td class="r">{{eur .PriceCents}}</td>
             <td>
               <div class="actions">
-                <a href="/invoices/{{.ID}}/edit"
+                <a href="/articles/{{.ID}}/edit"
                    title="{{T "edit"}}"
                    aria-label="{{T "edit"}}">{{template "icon-edit"}}</a>
-                <a href="/invoices/{{.ID}}/duplicate"
-                   title="{{T "duplicate"}}"
-                   aria-label="{{T "duplicate"}}">{{template "icon-duplicate"}}</a>
-                <a href="/invoices/{{.ID}}/history"
-                   title="{{T "history"}}"
-                   aria-label="{{T "history"}}">{{template "icon-history"}}</a>
                 <form method="post"
-                      action="/invoices/{{.ID}}/delete"
-                      onsubmit="return confirm('{{T "confirm_delete"}}')">
+                      action="/articles/{{.ID}}/delete"
+                      onsubmit="return confirm('{{T "confirm_delete_article"}}')">
                   <button type="submit" title="{{T "delete"}}" aria-label="{{T "delete"}}">{{template "icon-delete"}}</button>
                 </form>
               </div>
@@ -79,7 +71,7 @@
           </tr>
         {{else}}
           <tr>
-            <td colspan="5">{{T "no_invoices"}}</td>
+            <td colspan="4">{{T "no_articles"}}</td>
           </tr>
           {{end}}
         </tbody>

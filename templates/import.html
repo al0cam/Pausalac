@@ -1,0 +1,44 @@
+{{define "import.html"}}<!DOCTYPE html>
+<html lang="{{T "lang_code"}}">
+  <head>
+    {{template "head" .}}<title>{{T "import"}}</title>
+    <style>
+        .ok {
+            color: #2e7d32;
+            font-weight: bold
+        }
+
+        @media(prefers-color-scheme:dark) {
+            .ok {
+                color: #81c784
+            }
+        }
+
+        input[type=file] {
+            border: 1px solid var(--line);
+            border-radius: 4px;
+            background: var(--bg)
+        }
+    </style>
+  </head>
+  <body>
+    {{template "nav" "import"}}
+    <h1>{{T "import"}}</h1>
+    <p>{{T "import_help"}}</p>
+    {{with .Result}}
+    {{if .Err}}
+    <p class="err">{{.Err}}</p>
+  {{else}}
+    <p class="ok">{{T "import_done"}}</p>
+    {{end}}
+    {{end}}
+    <form method="post" action="/import" enctype="multipart/form-data">
+      <label>{{T "import_file"}}</label>
+      <input type="file" name="file" accept=".xlsx" required>
+      <div>
+        <button type="submit">{{T "import_run"}}</button>
+      </div>
+    </form>
+  </body>
+</html>
+{{end}}

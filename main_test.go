@@ -88,6 +88,274 @@ func TestCreateInvoice(t *testing.T) {
 	}
 }
 
+// Duplicating an invoice prefills the new-invoice form with the source's customer,
+// items, and note, but with today's date and no number (a fresh one on save).
+func TestDuplicateInvoice(t *testing.T) {
+	db := freshDB(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /invoices/{id}/duplicate", duplicateInvoice(db))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	// seed invoice id 1: customer "Demo Klijent", item "Poslovno savjetovanje" @ 50.00
+	resp, err := http.Get(srv.URL + "/invoices/1/duplicate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := body(t, resp)
+	for _, want := range []string{
+		"Poslovno savjetovanje", // item description carried over
+		"50.00",                 // unit price formatted from cents
+		`value="1" selected`,    // seeded customer preselected
+	} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("duplicate form missing %q in:\n%s", want, b)
+		}
+	}
+	// the source number must NOT be carried into the new form
+	if strings.Contains(b, "1/1/2025") {
+		t.Fatalf("duplicate form should not contain the source number, got:\n%s", b)
+	}
+}
+
+// Editing updates the invoice in place and records a revision; soft-deleting hides
+// it from the list but keeps it viewable, and the history shows every change.
+func TestEditDeleteHistory(t *testing.T) {
+	db := freshDB(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", listInvoices(db))
+	mux.HandleFunc("POST /invoices", createInvoice(db))
+	mux.HandleFunc("GET /invoices/{id}", viewInvoice(db))
+	mux.HandleFunc("POST /invoices/{id}", updateInvoice(db))
+	mux.HandleFunc("POST /invoices/{id}/delete", deleteInvoice(db))
+	mux.HandleFunc("GET /invoices/{id}/history", invoiceHistory(db))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	// don't follow the 303 redirects, so we can read Location and drive each step
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	// create -> records "created" with "Usluga A"
+	resp, err := client.PostForm(srv.URL+"/invoices", url.Values{
+		"issue_date":  {"2025-02-01"},
+		"customer_id": {"1"},
+		"description": {"Usluga A"},
+		"quantity":    {"1"},
+		"unit_price":  {"10,00"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loc := resp.Header.Get("Location") // /invoices/2 (seed holds id 1)
+	if loc == "" {
+		t.Fatalf("create did not redirect, status %d", resp.StatusCode)
+	}
+
+	// edit -> records "edited" with the new description
+	if _, err := client.PostForm(srv.URL+loc, url.Values{
+		"issue_date":  {"2025-02-01"},
+		"customer_id": {"1"},
+		"description": {"Promijenjena stavka"},
+		"quantity":    {"1"},
+		"unit_price":  {"7,00"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// history before delete: both the original and edited state, with action labels
+	hb := body(t, mustGet(t, client, srv.URL+loc+"/history"))
+	for _, want := range []string{"Stvoreno", "Promijenjeno", "Usluga A", "Promijenjena stavka"} {
+		if !strings.Contains(hb, want) {
+			t.Fatalf("history missing %q in:\n%s", want, hb)
+		}
+	}
+
+	// soft delete
+	if _, err := client.PostForm(srv.URL+loc+"/delete", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// list must no longer show this invoice's number
+	lb := body(t, mustGet(t, client, srv.URL+"/"))
+	if strings.Contains(lb, "2/2/2025") {
+		t.Fatalf("deleted invoice still listed:\n%s", lb)
+	}
+
+	// view still works and is marked deleted
+	vb := body(t, mustGet(t, client, srv.URL+loc))
+	if !strings.Contains(vb, "Ovaj račun je obrisan.") {
+		t.Fatalf("deleted invoice view missing deleted notice:\n%s", vb)
+	}
+
+	// history now includes the deletion event
+	hb = body(t, mustGet(t, client, srv.URL+loc+"/history"))
+	if !strings.Contains(hb, "Obrisano") {
+		t.Fatalf("history missing delete event in:\n%s", hb)
+	}
+}
+
+// The settings page shows current company data, saves edits, and rejects a
+// missing required field with a 422 + inline error.
+func TestCompanySettings(t *testing.T) {
+	db := freshDB(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /settings", settingsPage(db))
+	mux.HandleFunc("POST /settings", saveSettings(db))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	// GET prefills from the seeded company
+	if b := body(t, mustGet(t, client, srv.URL+"/settings")); !strings.Contains(b, "Sitna riba") {
+		t.Fatalf("settings form missing seeded company:\n%s", b)
+	}
+
+	// valid save -> 303 redirect to ?saved=1, and the new value persists
+	resp, err := client.PostForm(srv.URL+"/settings", url.Values{
+		"name": {"Nova Firma d.o.o."}, "owner": {"Ana Anić"}, "oib": {"99999999999"},
+		"bank": {"Nova banka"}, "iban": {"HR00"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("valid save status = %d, want 303", resp.StatusCode)
+	}
+	if b := body(t, mustGet(t, client, srv.URL+"/settings?saved=1")); !strings.Contains(b, "Nova Firma d.o.o.") || !strings.Contains(b, "Nova banka") {
+		t.Fatalf("saved company data not persisted:\n%s", b)
+	}
+
+	// missing required name -> 422 with inline error, no crash
+	resp, err = client.PostForm(srv.URL+"/settings", url.Values{
+		"name": {""}, "owner": {"Ana"}, "oib": {"123"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("missing name status = %d, want 422", resp.StatusCode)
+	}
+	if b := body(t, resp); !strings.Contains(b, "Obavezno polje.") {
+		t.Fatalf("missing required-field error:\n%s", b)
+	}
+}
+
+// The catalog seeds units/products into the form datalists, a new value added via
+// /catalog shows up on the next form load, and an item's unit round-trips to view.
+func TestCatalogAndUnit(t *testing.T) {
+	db := freshDB(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /invoices/new", newInvoice(db))
+	mux.HandleFunc("POST /catalog", addCatalog(db))
+	mux.HandleFunc("POST /invoices", createInvoice(db))
+	mux.HandleFunc("GET /invoices/{id}", viewInvoice(db))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	// seeded datalist values present on the form
+	b := body(t, mustGet(t, http.DefaultClient, srv.URL+"/invoices/new"))
+	for _, want := range []string{`id="list-unit"`, `value="sat"`, "Poslovno savjetovanje"} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("new form missing seeded catalog %q", want)
+		}
+	}
+
+	// add a unit on the spot, then it must appear on the next form load
+	if _, err := http.PostForm(srv.URL+"/catalog", url.Values{"kind": {"unit"}, "value": {"paket"}}); err != nil {
+		t.Fatal(err)
+	}
+	b = body(t, mustGet(t, http.DefaultClient, srv.URL+"/invoices/new"))
+	if !strings.Contains(b, `value="paket"`) {
+		t.Fatalf("catalog-added unit not in datalist:\n%s", b)
+	}
+
+	// a submitted unit must persist and render on the invoice
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.PostForm(srv.URL+"/invoices", url.Values{
+		"issue_date": {"2025-03-01"}, "customer_id": {"1"},
+		"description": {"Usluga"}, "unit": {"sat"}, "quantity": {"2"}, "unit_price": {"10,00"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vb := body(t, mustGet(t, http.DefaultClient, srv.URL+resp.Header.Get("Location")))
+	if !strings.Contains(vb, ">sat<") {
+		t.Fatalf("item unit not shown on invoice view:\n%s", vb)
+	}
+}
+
+// Articles can be created and then appear both in the management list and as an
+// autofill-enabled suggestion (data-price) on the invoice form.
+func TestArticles(t *testing.T) {
+	db := freshDB(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /articles", listArticles(db))
+	mux.HandleFunc("POST /articles", createArticle(db))
+	mux.HandleFunc("GET /invoices/new", newInvoice(db))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.PostForm(srv.URL+"/articles", url.Values{
+		"name": {"Web razvoj"}, "unit": {"sat"}, "price": {"45,00"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create article status = %d, want 303", resp.StatusCode)
+	}
+
+	// shows in the management list with its formatted price
+	if b := body(t, mustGet(t, http.DefaultClient, srv.URL+"/articles")); !strings.Contains(b, "Web razvoj") || !strings.Contains(b, "45.00") {
+		t.Fatalf("article not listed with price:\n%s", b)
+	}
+
+	// appears on the invoice form as an autofill option (name + data-price)
+	b := body(t, mustGet(t, http.DefaultClient, srv.URL+"/invoices/new"))
+	if !strings.Contains(b, `value="Web razvoj"`) || !strings.Contains(b, `data-price="45.00"`) {
+		t.Fatalf("article not offered as invoice suggestion:\n%s", b)
+	}
+}
+
+// computeTotals is the money path: discount reduces the base, VAT applies only
+// when not exempt, and it's charged on the whole base.
+func TestComputeTotals(t *testing.T) {
+	// 2 x 10.00, no discount, exempt -> everything = 20.00, no VAT
+	items := []Item{{Quantity: 2, UnitPriceCents: 1000, LineTotalCents: 2000}}
+	got := computeTotals(items, true)
+	if got.GrossCents != 2000 || got.DiscountCents != 0 || got.BaseCents != 2000 || got.VatCents != 0 || got.TotalCents != 2000 {
+		t.Fatalf("exempt no-discount: %+v", got)
+	}
+
+	// 1 x 10.00 with 10% rabat -> line 9.00, discount 1.00
+	items = []Item{{Quantity: 1, UnitPriceCents: 1000, DiscountPct: 10, LineTotalCents: 900}}
+	got = computeTotals(items, true)
+	if got.GrossCents != 1000 || got.DiscountCents != 100 || got.BaseCents != 900 || got.TotalCents != 900 {
+		t.Fatalf("exempt with discount: %+v", got)
+	}
+
+	// same line, VAT-registered -> PDV 25% of 900 = 225, total 1125
+	got = computeTotals(items, false)
+	if got.VatCents != 225 || got.TotalCents != 1125 {
+		t.Fatalf("vat-registered: %+v", got)
+	}
+}
+
+func mustGet(t *testing.T, c *http.Client, url string) *http.Response {
+	t.Helper()
+	resp, err := c.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
 // Missing fields must redisplay the form with inline errors (422), not an error page,
 // and must preserve what the user already typed.
 func TestCreateInvoiceValidationRedisplay(t *testing.T) {

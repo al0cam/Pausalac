@@ -1,0 +1,7 @@
+{
+  "profile": "golang",
+  "indent": 2,
+  "format_css": true,
+  "format_js": true,
+  "max_line_length": 120
+}

@@ -1,56 +1,323 @@
-{{define "head"}}<meta charset="utf-8">
+{{define "head"}}
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-:root{color-scheme:light;--bg:#fff;--fg:#222;--line:#ddd;--muted:#555;--blue:#1565c0;--red:#c62828}
-@media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#1a1a1a;--fg:#e6e6e6;--line:#3a3a3a;--muted:#aaa;--blue:#5b9bd5;--red:#ef5350}}
-[data-theme=light]{color-scheme:light;--bg:#fff;--fg:#222;--line:#ddd;--muted:#555;--blue:#1565c0;--red:#c62828}
-[data-theme=dark]{color-scheme:dark;--bg:#1a1a1a;--fg:#e6e6e6;--line:#3a3a3a;--muted:#aaa;--blue:#5b9bd5;--red:#ef5350}
-*{box-sizing:border-box}
-body{font-family:system-ui,sans-serif;max-width:820px;margin:2rem auto;padding:0 1rem;background:var(--bg);color:var(--fg)}
-h1{font-size:1.5rem}
-table{width:100%;border-collapse:collapse;margin-top:1rem}
-th,td{padding:.5rem;border-bottom:1px solid var(--line);text-align:left}
-.r{text-align:right}
-.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}  /* tables scroll instead of overflowing the page */
-a.btn,button{display:inline-block;padding:.5rem 1rem;background:var(--blue);color:#fff;border:0;border-radius:4px;cursor:pointer;text-decoration:none;font:inherit}
-label{display:block;margin:.75rem 0 .25rem}
-input,select{padding:.5rem;width:100%;font:inherit}  /* 16px font avoids iOS zoom-on-focus */
-input.bad,select.bad{border:1px solid var(--red)}
-.err{color:var(--red);font-size:.85rem;display:block;margin-top:.2rem}
-nav{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;padding-bottom:.75rem;margin-bottom:1rem;border-bottom:1px solid var(--line)}
-nav .brand{font-weight:bold;color:var(--blue);text-decoration:none;margin-right:auto}
-nav a{color:var(--fg);text-decoration:none}
-nav a.active{color:var(--blue);font-weight:bold}
-nav .lang{display:flex;gap:.4rem;font-size:.85rem}
-nav .toggle{background:none;color:var(--fg);border:1px solid var(--line);padding:.25rem .55rem;font-size:1rem;line-height:1}
-@media(max-width:600px){body{margin:1rem auto}h1{font-size:1.25rem}th,td{padding:.4rem}}
-@media print{nav{display:none}}
+    :root {
+        color-scheme: light;
+        --bg: #fff;
+        --fg: #222;
+        --line: #ddd;
+        --muted: #555;
+        --blue: #1565c0;
+        --red: #c62828
+    }
+
+    @media(prefers-color-scheme:dark) {
+        :root {
+            color-scheme: dark;
+            --bg: #1a1a1a;
+            --fg: #e6e6e6;
+            --line: #3a3a3a;
+            --muted: #aaa;
+            --blue: #5b9bd5;
+            --red: #ef5350
+        }
+    }
+
+    [data-theme=light] {
+        color-scheme: light;
+        --bg: #fff;
+        --fg: #222;
+        --line: #ddd;
+        --muted: #555;
+        --blue: #1565c0;
+        --red: #c62828
+    }
+
+    [data-theme=dark] {
+        color-scheme: dark;
+        --bg: #1a1a1a;
+        --fg: #e6e6e6;
+        --line: #3a3a3a;
+        --muted: #aaa;
+        --blue: #5b9bd5;
+        --red: #ef5350
+    }
+
+    * {
+        box-sizing: border-box
+    }
+
+    body {
+        font-family: system-ui, sans-serif;
+        max-width: 820px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        background: var(--bg);
+        color: var(--fg)
+    }
+
+    h1 {
+        font-size: 1.5rem
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem
+    }
+
+    th,
+    td {
+        padding: .5rem;
+        border-bottom: 1px solid var(--line);
+        text-align: left
+    }
+
+    .r {
+        text-align: right
+    }
+
+    .scroll {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch
+    }
+
+    /* tables scroll instead of overflowing the page */
+    a.btn,
+    button {
+        display: inline-block;
+        padding: .5rem 1rem;
+        background: var(--blue);
+        color: #fff;
+        border: 0;
+        border-radius: 4px;
+        cursor: pointer;
+        text-decoration: none;
+        font: inherit
+    }
+
+    label {
+        display: block;
+        margin: .75rem 0 .25rem
+    }
+
+    input,
+    select {
+        padding: .5rem;
+        width: 100%;
+        font: inherit
+    }
+
+    /* 16px font avoids iOS zoom-on-focus */
+    input.bad,
+    select.bad {
+        border: 1px solid var(--red)
+    }
+
+    .err {
+        color: var(--red);
+        font-size: .85rem;
+        display: block;
+        margin-top: .2rem
+    }
+
+    abbr[title] {
+        cursor: help;
+        text-decoration: underline dotted
+    }
+
+    tfoot .grand td {
+        font-weight: bold;
+        border-top: 2px solid var(--fg)
+    }
+
+    .vat-note {
+        margin-top: .5rem;
+        font-size: .9rem;
+        color: var(--muted)
+    }
+
+    nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        align-items: center;
+        padding-bottom: .75rem;
+        margin-bottom: 1rem;
+        border-bottom: 1px solid var(--line)
+    }
+
+    nav .brand {
+        font-weight: bold;
+        color: var(--blue);
+        text-decoration: none;
+        margin-right: auto
+    }
+
+    nav a {
+        color: var(--fg);
+        text-decoration: none
+    }
+
+    nav a.active {
+        color: var(--blue);
+        font-weight: bold
+    }
+
+    nav .lang {
+        display: flex;
+        gap: .4rem;
+        font-size: .85rem
+    }
+
+    nav .toggle {
+        background: none;
+        color: var(--fg);
+        border: 1px solid var(--line);
+        padding: .25rem .55rem;
+        font-size: 1rem;
+        line-height: 1
+    }
+
+    @media(max-width:600px) {
+        body {
+            margin: 1rem auto
+        }
+
+        h1 {
+            font-size: 1.25rem
+        }
+
+        th,
+        td {
+            padding: .4rem
+        }
+    }
+
+    @media print {
+        nav {
+            display: none
+        }
+    }
 </style>
 <script>
-(function(){
-  var t = localStorage.getItem('theme');
-  if (t) document.documentElement.dataset.theme = t;  // apply before paint to avoid flash
-  addEventListener('DOMContentLoaded', function(){
-    var b = document.getElementById('theme');
-    if (!b) return;
-    b.onclick = function(){
-      var cur = document.documentElement.dataset.theme
-        || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-      var next = cur === 'dark' ? 'light' : 'dark';
-      document.documentElement.dataset.theme = next;
-      localStorage.setItem('theme', next);
-    };
-  });
-})();
-</script>{{end}}
-
-{{define "nav"}}<nav>
+    (function() {
+        var t = localStorage.getItem('theme');
+        if (t) document.documentElement.dataset.theme = t; // apply before paint to avoid flash
+        addEventListener('DOMContentLoaded', function() {
+            var b = document.getElementById('theme');
+            if (!b) return;
+            b.onclick = function() {
+                var cur = document.documentElement.dataset.theme ||
+                    (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                var next = cur === 'dark' ? 'light' : 'dark';
+                document.documentElement.dataset.theme = next;
+                localStorage.setItem('theme', next);
+            };
+        });
+    })();
+</script>
+{{end}}
+{{define "nav"}}
+<nav>
   <a class="brand" href="/">Paušalac</a>
   <a href="/"{{if eq . "list"}} class="active"{{end}}>{{T "invoices"}}</a>
   <a href="/invoices/new"{{if eq . "new"}} class="active"{{end}}>{{T "new_invoice"}}</a>
+  <a href="/articles"{{if eq . "articles"}} class="active"{{end}}>{{T "articles"}}</a>
+  <a href="/import"{{if eq . "import"}} class="active"{{end}}>{{T "import"}}</a>
+  <a href="/settings"{{if eq . "settings"}} class="active"{{end}}>{{T "settings"}}</a>
   <span class="lang">
     <a href="?lang=hr"{{if eq (T "lang_code") "hr"}} class="active"{{end}}>HR</a>
     <a href="?lang=en"{{if eq (T "lang_code") "en"}} class="active"{{end}}>EN</a>
   </span>
-  <button type="button" id="theme" class="toggle" title="{{T "toggle_theme"}}" aria-label="{{T "toggle_theme"}}">&#9680;</button>
-</nav>{{end}}
+  <button type="button"
+          id="theme"
+          class="toggle"
+          title="{{T "toggle_theme"}}"
+          aria-label="{{T "toggle_theme"}}">&#9680;</button>
+</nav>
+{{end}}
+{{/* Inline icon set (Material paths); fill:currentColor so they take the link colour. */}}
+{{define "icon-edit"}}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+</svg>
+{{end}}
+{{define "icon-duplicate"}}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" />
+</svg>
+{{end}}
+{{define "icon-history"}}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 1 1 2.05 4.95l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z" />
+</svg>
+{{end}}
+{{define "icon-delete"}}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+</svg>
+{{end}}
+{{/* Abbreviation labels with an explanatory tooltip, reused across pages. */}}
+{{define "abbr-oib"}}<abbr title="{{T "oib_full"}}">OIB</abbr>{{end}}
+{{define "abbr-iban"}}<abbr title="{{T "iban_full"}}">IBAN</abbr>{{end}}
+{{/* Read-only line-item table + totals block, shared by view.html and history.html.
+     Context: { Items: [Item], Totals: Totals, VatExempt: bool }. */}}
+{{define "items-table"}}
+<div class="scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>{{T "description"}}</th>
+        <th><abbr title="{{T "unit_full"}}">{{T "unit_short"}}</abbr></th>
+        <th class="r">{{T "qty_short"}}</th>
+        <th class="r">{{T "price_eur"}}</th>
+        <th class="r">{{T "discount"}}</th>
+        <th class="r">{{T "amount_eur"}}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Items}}
+      <tr>
+        <td>{{.Description}}</td>
+        <td>{{.Unit}}</td>
+        <td class="r">{{.Quantity}}</td>
+        <td class="r">{{eur .UnitPriceCents}}</td>
+        <td class="r">{{if .DiscountPct}}{{.DiscountPct}}%{{end}}</td>
+        <td class="r">{{eur .LineTotalCents}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+    <tfoot>
+      {{if .Totals.DiscountCents}}
+      <tr>
+        <td colspan="5" class="r">{{T "subtotal"}}</td>
+        <td class="r">{{eur .Totals.GrossCents}}</td>
+      </tr>
+      <tr>
+        <td colspan="5" class="r">{{T "discount"}}</td>
+        <td class="r">-{{eur .Totals.DiscountCents}}</td>
+      </tr>
+      {{end}}
+      {{if not .VatExempt}}
+      <tr>
+        <td colspan="5" class="r">{{T "tax_base"}}</td>
+        <td class="r">{{eur .Totals.BaseCents}}</td>
+      </tr>
+      <tr>
+        <td colspan="5" class="r">{{T "vat"}}</td>
+        <td class="r">{{eur .Totals.VatCents}}</td>
+      </tr>
+      {{end}}
+      <tr class="grand">
+        <td colspan="5" class="r">{{T "total"}}</td>
+        <td class="r">{{eur .Totals.TotalCents}}</td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+{{if .VatExempt}}
+<p class="vat-note">{{T "vat_exempt_note"}}</p>
+{{end}}
+{{end}}

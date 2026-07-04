@@ -1,0 +1,54 @@
+{{define "history.html"}}<!DOCTYPE html>
+<html lang="{{T "lang_code"}}">
+  <head>
+    {{template "head" .}}<title>{{T "history"}} {{.Number}}</title>
+    <style>
+        .rev {
+            border: 1px solid var(--line);
+            border-radius: 4px;
+            padding: .75rem 1rem;
+            margin-top: 1rem
+        }
+
+        .rev-head {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .75rem;
+            align-items: baseline;
+            justify-content: space-between
+        }
+
+        .rev-head b {
+            color: var(--blue)
+        }
+
+        .when {
+            color: var(--muted);
+            font-size: .85rem
+        }
+
+        .meta {
+            font-size: .9rem;
+            margin: .4rem 0
+        }
+    </style>
+  </head>
+  <body>
+    {{template "nav" ""}}
+    <p class="noprint"><a href="/invoices/{{.ID}}">&larr; {{T "invoice"}} {{.Number}}</a></p>
+    <h1>{{T "history"}}: {{.Number}}</h1>
+    {{range .Revisions}}
+    <div class="rev">
+      <div class="rev-head">
+        <b>{{T (printf "rev_%s" .Action)}}</b>
+        <span class="when">{{.ChangedAt}}</span>
+      </div>
+      <div class="meta">{{T "date"}}: {{.Snap.IssueDate}} &middot; {{T "customer"}}: {{.Snap.Customer}}{{if .Snap.Note}} &middot; {{T "note"}}: {{.Snap.Note}}{{end}}</div>
+      {{template "items-table" (dict "Items" .Snap.Items "Totals" .Snap.Totals "VatExempt" .Snap.VatExempt)}}
+    </div>
+  {{else}}
+    <p>{{T "no_history"}}</p>
+    {{end}}
+  </body>
+</html>
+{{end}}

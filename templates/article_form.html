@@ -1,0 +1,35 @@
+{{define "article_form.html"}}<!DOCTYPE html>
+<html lang="{{T "lang_code"}}">
+  <head>
+    {{template "head" .}}<title>{{if .ID}}{{T "edit_article"}}{{else}}{{T "new_article"}}{{end}}</title>
+    <style>
+        button[type=submit] {
+            margin-top: 1.5rem
+        }
+    </style>
+  </head>
+  <body>
+    {{template "nav" "articles"}}
+    <h1>{{if .ID}}{{T "edit_article"}}{{else}}{{T "new_article"}}{{end}}</h1>
+  <form method="post"
+        action="{{if .ID}}/articles/{{.ID}}{{else}}/articles{{end}}">
+    <label>{{T "article_name"}}</label>
+    <input name="name"
+           value="{{.Name}}"
+           required
+           class="{{if .Errors.name}}bad{{end}}">
+    {{with .Errors.name}}<span class="err">{{.}}</span>{{end}}
+    <label>{{T "unit_full"}}</label>
+    <input name="unit" list="list-unit" value="{{.Unit}}">
+    <label>{{T "price_eur"}}</label>
+    <input name="price" value="{{.Price}}" placeholder="0,00">
+    <div>
+      <button type="submit">{{T "save"}}</button>
+    </div>
+  </form>
+  <datalist id="list-unit">{{range .Units}}
+    <option value="{{.}}"></option>
+  {{end}}</datalist>
+</body>
+</html>
+{{end}}
