@@ -1,0 +1,32 @@
+{{define "customer_form.html"}}<!DOCTYPE html>
+<html lang="{{T "lang_code"}}">
+  <head>
+    {{template "head" .}}<title>{{if .ID}}{{T "edit_customer"}}{{else}}{{T "new_customer"}}{{end}}</title>
+    <style>
+        button[type=submit] {
+            margin-top: 1.5rem
+        }
+    </style>
+  </head>
+  <body>
+    {{template "nav" "customers"}}
+    <h1>{{if .ID}}{{T "edit_customer"}}{{else}}{{T "new_customer"}}{{end}}</h1>
+  <form method="post"
+        action="{{if .ID}}/customers/{{.ID}}{{else}}/customers{{end}}">
+    <label>{{T "customer"}}</label>
+    <input name="name"
+           value="{{.Name}}"
+           required
+           class="{{if .Errors.name}}bad{{end}}">
+    {{with .Errors.name}}<span class="err">{{.}}</span>{{end}}
+    <label>{{template "abbr-oib"}}</label>
+    <input name="oib" value="{{.OIB}}">
+    <label>{{T "company_address"}}</label>
+    <input name="address" value="{{.Address}}">
+    <div>
+      <button type="submit">{{T "save"}}</button>
+    </div>
+  </form>
+</body>
+</html>
+{{end}}

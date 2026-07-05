@@ -1,20 +1,28 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"database/sql"
 	"embed"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"math"
 	"net/http"
 	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ledongthuc/pdf"
 	"github.com/xuri/excelize/v2"
 
 	"pausalac/db"
@@ -42,9 +50,12 @@ func parseTemplates() map[string]*template.Template {
 	for lang := range messages {
 		l := lang
 		m[lang] = template.Must(template.New("").Funcs(template.FuncMap{
-			"eur":  eur,
-			"dict": dict,
-			"T":    func(key string) string { return tr(l, key) },
+			"eur":      eur,
+			"dict":     dict,
+			"date":     hrDate,
+			"datetime": hrDateTime,
+			"isoutc":   isoUTC,
+			"T":        func(key string) string { return tr(l, key) },
 		}).ParseFS(assets, "templates/*.html"))
 	}
 	return m
@@ -75,6 +86,11 @@ type Invoice struct {
 	ID              int64
 	Number          string
 	IssueDate       string
+	IssueTime       string
+	DeliveryDate    string
+	DueDate         string
+	PaymentMethod   string
+	Poziv           string
 	Customer        string
 	CustomerAddress string
 	CustomerOIB     string
@@ -136,8 +152,10 @@ type Article struct {
 }
 
 type Customer struct {
-	ID   int64
-	Name string
+	ID      int64
+	Name    string
+	OIB     string
+	Address string
 }
 
 type Company struct {
@@ -148,6 +166,7 @@ type Company struct {
 	Place        string
 	IBAN         string
 	Bank         string
+	Swift        string
 	OwnerAddress string
 	VatExempt    bool
 }
@@ -184,6 +203,13 @@ func main() {
 	mux.HandleFunc("GET /articles/{id}/edit", editArticle(conn))
 	mux.HandleFunc("POST /articles/{id}", updateArticle(conn))
 	mux.HandleFunc("POST /articles/{id}/delete", deleteArticle(conn))
+	mux.HandleFunc("GET /customers", listCustomers(conn))
+	mux.HandleFunc("GET /customers/new", newCustomer(conn))
+	mux.HandleFunc("POST /customers", createCustomer(conn))
+	mux.HandleFunc("POST /customers/quick", quickCustomer(conn))
+	mux.HandleFunc("GET /customers/{id}/edit", editCustomer(conn))
+	mux.HandleFunc("POST /customers/{id}", updateCustomer(conn))
+	mux.HandleFunc("POST /customers/{id}/delete", deleteCustomer(conn))
 
 	addr := ":" + cmp(os.Getenv("PORT"), "8080")
 	log.Printf("pausalac listening on %s (db=%s)", addr, dbPath)
@@ -241,16 +267,21 @@ type itemInput struct{ Description, Unit, Quantity, UnitPrice, Discount string }
 // ID is 0 for a new invoice and the invoice id when editing (the form then POSTs
 // to /invoices/{id} and shows the immutable Number).
 type invoiceForm struct {
-	ID         int64
-	Number     string
-	IssueDate  string
-	CustomerID string
-	Note       string
-	Items      []itemInput
-	Errors     map[string]string
-	Customers  []Customer
-	Catalog    catalogs
-	Articles   []Article
+	ID            int64
+	Number        string
+	IssueDate     string
+	IssueTime     string
+	DeliveryDate  string
+	DueDate       string
+	PaymentMethod string
+	Poziv         string
+	CustomerID    string
+	Note          string
+	Items         []itemInput
+	Errors        map[string]string
+	Customers     []Customer
+	Catalog       catalogs
+	Articles      []Article
 }
 
 // renderNew loads customers, ensures at least one item row, and renders the form.
@@ -487,6 +518,168 @@ func loadArticles(db *sql.DB) ([]Article, error) {
 	return as, nil
 }
 
+// customerForm is the data the customer create/edit template renders. ID is 0
+// for a new customer.
+type customerForm struct {
+	ID      int64
+	Name    string
+	OIB     string
+	Address string
+	Errors  map[string]string
+}
+
+func listCustomers(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		custs, err := allCustomers(db)
+		if err != nil {
+			httpErr(w, err)
+			return
+		}
+		render(w, r, "customers.html", map[string]any{
+			"Customers": custs,
+			"InUse":     r.URL.Query().Get("err") == "inuse",
+		})
+	}
+}
+
+func newCustomer(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "customer_form.html", customerForm{})
+	}
+}
+
+func createCustomer(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		f := parseCustomerForm(r)
+		if errs := validateCustomer(f, langOf(r)); len(errs) > 0 {
+			f.Errors = errs
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			render(w, r, "customer_form.html", f)
+			return
+		}
+		if _, err := insertCustomer(db, f); err != nil {
+			httpErr(w, err)
+			return
+		}
+		http.Redirect(w, r, "/customers", http.StatusSeeOther)
+	}
+}
+
+// quickCustomer inserts a customer from the invoice-form modal and returns the
+// new row as JSON so the page can add and select it without reloading.
+func quickCustomer(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		f := parseCustomerForm(r)
+		if f.Name == "" {
+			http.Error(w, "name required", http.StatusBadRequest)
+			return
+		}
+		id, err := insertCustomer(db, f)
+		if err != nil {
+			httpErr(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"id": id, "name": f.Name})
+	}
+}
+
+func editCustomer(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		f := customerForm{ID: id}
+		err = db.QueryRow(`SELECT name, oib, address FROM customers WHERE id = ?`, id).
+			Scan(&f.Name, &f.OIB, &f.Address)
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		} else if err != nil {
+			httpErr(w, err)
+			return
+		}
+		render(w, r, "customer_form.html", f)
+	}
+}
+
+func updateCustomer(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		f := parseCustomerForm(r)
+		f.ID = id
+		if errs := validateCustomer(f, langOf(r)); len(errs) > 0 {
+			f.Errors = errs
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			render(w, r, "customer_form.html", f)
+			return
+		}
+		if _, err := db.Exec(`UPDATE customers SET name = ?, oib = ?, address = ? WHERE id = ?`,
+			f.Name, f.OIB, f.Address, id); err != nil {
+			httpErr(w, err)
+			return
+		}
+		http.Redirect(w, r, "/customers", http.StatusSeeOther)
+	}
+}
+
+func deleteCustomer(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		// A customer referenced by an invoice can't be deleted (FK); tell the user
+		// instead of 500-ing.
+		var n int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM invoices WHERE customer_id = ?`, id).Scan(&n); err != nil {
+			httpErr(w, err)
+			return
+		}
+		if n > 0 {
+			http.Redirect(w, r, "/customers?err=inuse", http.StatusSeeOther)
+			return
+		}
+		if _, err := db.Exec(`DELETE FROM customers WHERE id = ?`, id); err != nil {
+			httpErr(w, err)
+			return
+		}
+		http.Redirect(w, r, "/customers", http.StatusSeeOther)
+	}
+}
+
+func parseCustomerForm(r *http.Request) customerForm {
+	return customerForm{
+		Name:    strings.TrimSpace(r.FormValue("name")),
+		OIB:     strings.TrimSpace(r.FormValue("oib")),
+		Address: strings.TrimSpace(r.FormValue("address")),
+	}
+}
+
+func validateCustomer(f customerForm, lang string) map[string]string {
+	errs := map[string]string{}
+	if f.Name == "" {
+		errs["name"] = tr(lang, "err_required")
+	}
+	return errs
+}
+
+func insertCustomer(db *sql.DB, f customerForm) (int64, error) {
+	res, err := db.Exec(`INSERT INTO customers (name, oib, address) VALUES (?, ?, ?)`,
+		f.Name, f.OIB, f.Address)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
 func newInvoice(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		renderNew(w, r, db, invoiceForm{IssueDate: time.Now().Format("2006-01-02")})
@@ -564,9 +757,14 @@ func scanItemInputs(rows *sql.Rows, outErr *error) []itemInput {
 // parseInvoiceForm reads the submitted invoice fields and item rows.
 func parseInvoiceForm(r *http.Request) invoiceForm {
 	f := invoiceForm{
-		IssueDate:  r.FormValue("issue_date"),
-		CustomerID: r.FormValue("customer_id"),
-		Note:       r.FormValue("note"),
+		IssueDate:     r.FormValue("issue_date"),
+		IssueTime:     strings.TrimSpace(r.FormValue("issue_time")),
+		DeliveryDate:  r.FormValue("delivery_date"),
+		DueDate:       r.FormValue("due_date"),
+		PaymentMethod: strings.TrimSpace(r.FormValue("payment_method")),
+		Poziv:         strings.TrimSpace(r.FormValue("poziv")),
+		CustomerID:    r.FormValue("customer_id"),
+		Note:          r.FormValue("note"),
 	}
 	descs := r.Form["description"]
 	units := r.Form["unit"]
@@ -665,8 +863,10 @@ func createInvoice(db *sql.DB) http.HandlerFunc {
 		}
 		number := fmt.Sprintf("%d/%d/%d", seq, int(issued.Month()), issued.Year())
 
-		res, err := tx.Exec(`INSERT INTO invoices (number, issue_date, customer_id, note) VALUES (?, ?, ?, ?)`,
-			number, f.IssueDate, customerID, f.Note)
+		res, err := tx.Exec(`INSERT INTO invoices
+			(number, issue_date, customer_id, note, issue_time, delivery_date, due_date, payment_method, poziv)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			number, f.IssueDate, customerID, f.Note, f.IssueTime, f.DeliveryDate, f.DueDate, f.PaymentMethod, f.Poziv)
 		if err != nil {
 			httpErr(w, err)
 			return
@@ -699,9 +899,11 @@ func editInvoice(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		f := invoiceForm{ID: id}
-		err = db.QueryRow(`SELECT number, issue_date, customer_id, note
+		err = db.QueryRow(`SELECT number, issue_date, customer_id, note,
+			issue_time, delivery_date, due_date, payment_method, poziv
 			FROM invoices WHERE id = ? AND deleted_at IS NULL`, id).
-			Scan(&f.Number, &f.IssueDate, &f.CustomerID, &f.Note)
+			Scan(&f.Number, &f.IssueDate, &f.CustomerID, &f.Note,
+				&f.IssueTime, &f.DeliveryDate, &f.DueDate, &f.PaymentMethod, &f.Poziv)
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
 			return
@@ -765,8 +967,9 @@ func updateInvoice(db *sql.DB) http.HandlerFunc {
 		}
 		defer tx.Rollback()
 
-		if _, err := tx.Exec(`UPDATE invoices SET issue_date = ?, customer_id = ?, note = ? WHERE id = ?`,
-			f.IssueDate, customerID, f.Note, id); err != nil {
+		if _, err := tx.Exec(`UPDATE invoices SET issue_date = ?, customer_id = ?, note = ?,
+			issue_time = ?, delivery_date = ?, due_date = ?, payment_method = ?, poziv = ? WHERE id = ?`,
+			f.IssueDate, customerID, f.Note, f.IssueTime, f.DeliveryDate, f.DueDate, f.PaymentMethod, f.Poziv, id); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -938,94 +1141,298 @@ func importPage(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// runImport reads company data from the PODACI sheet of a Plavi ured workbook.
+// runImport reads company data from an uploaded invoice or Plavi ured workbook
+// in xlsx/xlsm, ods, or pdf, in Croatian or English.
 // ponytail: invoice/customer import (BAZA sheet) will land with Knjiga prometa.
 func runImport(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lang := langOf(r)
 		res := &importResult{}
-		file, _, err := r.FormFile("file")
-		if err != nil {
-			res.Err = tr(lang, "import_no_file")
+		fail := func(key string) {
+			res.Err = tr(lang, key)
 			render(w, r, "import.html", map[string]any{"Result": res})
+		}
+		file, hdr, err := r.FormFile("file")
+		if err != nil {
+			fail("import_no_file")
 			return
 		}
 		defer file.Close()
-		xl, err := excelize.OpenReader(file)
-		if err != nil {
-			res.Err = tr(lang, "import_error")
-			render(w, r, "import.html", map[string]any{"Result": res})
-			return
-		}
-		defer xl.Close()
-
-		tx, err := db.Begin()
+		data, err := io.ReadAll(file)
 		if err != nil {
 			httpErr(w, err)
 			return
 		}
-		defer tx.Rollback()
-
-		importCompany(tx, xl, res)
-		if err := tx.Commit(); err != nil {
+		lines, err := readDocLines(hdr.Filename, data)
+		if err != nil {
+			fail("import_error")
+			return
+		}
+		fields := extractCompany(lines)
+		// Trust check: only accept files that actually look like a company/invoice.
+		if fields["name"] == "" || (fields["iban"] == "" && fields["owner"] == "" && fields["oib"] == "") {
+			fail("import_no_company")
+			return
+		}
+		if err := saveCompanyFields(db, fields); err != nil {
 			httpErr(w, err)
 			return
 		}
-		if !res.Company && res.Err == "" {
-			res.Err = tr(lang, "import_no_company")
-		}
+		res.Company = true
 		render(w, r, "import.html", map[string]any{"Result": res})
 	}
 }
 
-// importCompany maps the PODACI key/value rows onto the (single) company row.
-// Column names come from a fixed whitelist, never from the sheet, so the dynamic
-// UPDATE is injection-safe.
-func importCompany(tx *sql.Tx, xl *excelize.File, res *importResult) {
-	rows, err := xl.GetRows("PODACI")
+// readDocLines returns ordered, non-empty text lines from an uploaded document,
+// dispatching on file extension. All three formats reduce to the same shape (an
+// invoice's issuer header, or the PODACI key/value sheet), so one extractor
+// (extractCompany) handles them uniformly.
+func readDocLines(name string, data []byte) ([]string, error) {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".xlsx", ".xlsm":
+		return xlsxLines(data)
+	case ".ods":
+		return odsLines(data)
+	case ".pdf":
+		return pdfLines(data)
+	}
+	return nil, fmt.Errorf("unsupported file type: %s", name)
+}
+
+// xlsxLines flattens one sheet into ordered cell text: the PODACI sheet if the
+// workbook has one (Plavi ured), otherwise the first sheet (a plain invoice).
+func xlsxLines(data []byte) ([]string, error) {
+	xl, err := excelize.OpenReader(bytes.NewReader(data))
 	if err != nil {
-		return
+		return nil, err
 	}
-	fields := map[string]string{}
+	defer xl.Close()
+	sheets := xl.GetSheetList()
+	if len(sheets) == 0 {
+		return nil, nil
+	}
+	target := sheets[0]
+	for _, s := range sheets {
+		if strings.EqualFold(s, "PODACI") {
+			target = s
+		}
+	}
+	rows, err := xl.GetRows(target)
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
 	for _, row := range rows {
-		if len(row) < 2 {
-			continue
-		}
-		label := strings.ToLower(strings.TrimRight(strings.TrimSpace(row[0]), ":"))
-		val := strings.TrimSpace(row[1])
-		if val == "" {
-			continue
-		}
-		switch {
-		case strings.HasPrefix(label, "naziv obrta"):
-			fields["name"] = val
-		case strings.HasPrefix(label, "adresa obavljanja"):
-			fields["address"] = val
-		case strings.HasPrefix(label, "ime i prezime vlasnika"):
-			fields["owner"] = val
-		case strings.HasPrefix(label, "adresa vlasnika"):
-			fields["owner_address"] = val
-		case label == "oib":
-			fields["oib"] = val
-		case label == "iban":
-			fields["iban"] = val
-		case strings.HasPrefix(label, "banka"):
-			fields["bank"] = val
+		for _, c := range row {
+			if s := strings.TrimSpace(c); s != "" {
+				lines = append(lines, s)
+			}
 		}
 	}
-	if len(fields) == 0 {
-		return
+	return lines, nil
+}
+
+// odsLines extracts each text paragraph from an OpenDocument spreadsheet's
+// content.xml in document order (excelize cannot read ods).
+func odsLines(data []byte) ([]string, error) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, err
+	}
+	var rc io.ReadCloser
+	for _, f := range zr.File {
+		if f.Name == "content.xml" {
+			if rc, err = f.Open(); err != nil {
+				return nil, err
+			}
+			break
+		}
+	}
+	if rc == nil {
+		return nil, fmt.Errorf("no content.xml in ods")
+	}
+	defer rc.Close()
+	dec := xml.NewDecoder(rc)
+	var lines []string
+	var buf strings.Builder
+	depth := 0 // inside a <text:p> paragraph
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "p" {
+				depth++
+			}
+		case xml.CharData:
+			if depth > 0 {
+				buf.Write(t)
+			}
+		case xml.EndElement:
+			if t.Name.Local == "p" {
+				depth--
+				if depth == 0 {
+					if s := strings.TrimSpace(buf.String()); s != "" {
+						lines = append(lines, s)
+					}
+					buf.Reset()
+				}
+			}
+		}
+	}
+	return lines, nil
+}
+
+// pdfLines extracts text lines from a PDF by bucketing characters on their Y
+// position (GetTextByRow collapses this invoice to a single row), then ordering
+// each line left-to-right and inserting spaces on horizontal gaps.
+func pdfLines(data []byte) ([]string, error) {
+	r, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
+	for i := 1; i <= r.NumPage(); i++ {
+		p := r.Page(i)
+		if p.V.IsNull() {
+			continue
+		}
+		byY := map[int][]pdf.Text{}
+		for _, t := range p.Content().Text {
+			y := int(math.Round(t.Y))
+			byY[y] = append(byY[y], t)
+		}
+		ys := make([]int, 0, len(byY))
+		for y := range byY {
+			ys = append(ys, y)
+		}
+		sort.Sort(sort.Reverse(sort.IntSlice(ys))) // top of page first
+		for _, y := range ys {
+			ts := byY[y]
+			sort.Slice(ts, func(a, b int) bool { return ts[a].X < ts[b].X })
+			var b strings.Builder
+			var lastX float64
+			for k, t := range ts {
+				if k > 0 && t.X-lastX > 1.5 {
+					b.WriteByte(' ')
+				}
+				b.WriteString(t.S)
+				lastX = t.X + t.W
+			}
+			if s := strings.TrimSpace(b.String()); s != "" {
+				lines = append(lines, s)
+			}
+		}
+	}
+	return lines, nil
+}
+
+var (
+	ibanRe = regexp.MustCompile(`[A-Z]{2}\d{2}[A-Z0-9]{2}[A-Z0-9 ]{6,26}`)
+	oibRe  = regexp.MustCompile(`\b\d{11}\b`)
+)
+
+// extractCompany maps ordered document lines onto company columns. It matches
+// bilingual labels (Croatian PODACI sheet plus Croatian/English invoice
+// headers), falls back to positional issuer-header parsing (name / "Vl." owner /
+// address / place), and pattern-matches IBAN and OIB.
+func extractCompany(lines []string) map[string]string {
+	f := map[string]string{}
+	set := func(k, v string) {
+		if v != "" && f[k] == "" {
+			f[k] = v
+		}
+	}
+	for i, line := range lines {
+		label, val := line, ""
+		if idx := strings.Index(line, ":"); idx >= 0 {
+			label, val = line[:idx], strings.TrimSpace(line[idx+1:])
+		}
+		if val == "" && i+1 < len(lines) {
+			val = strings.TrimSpace(lines[i+1])
+		}
+		switch low := strings.ToLower(strings.TrimSpace(label)); {
+		case strings.HasPrefix(low, "naziv obrta"):
+			set("name", val)
+		case strings.HasPrefix(low, "adresa obavljanja"):
+			set("address", val)
+		case strings.HasPrefix(low, "adresa vlasnika"):
+			set("owner_address", val)
+		case strings.HasPrefix(low, "ime i prezime vlasnika") || low == "owner":
+			set("owner", val)
+		case low == "oib":
+			set("oib", val)
+		case low == "iban":
+			set("iban", collapseSpaces(val))
+		case low == "bank" || strings.HasPrefix(low, "banka"):
+			// ods packs both into one cell: "Banka, swift banke:" -> "name, SWIFT".
+			parts := strings.SplitN(val, ",", 2)
+			set("bank", strings.TrimSpace(parts[0]))
+			if len(parts) == 2 {
+				set("swift", strings.TrimSpace(parts[1]))
+			}
+		case strings.Contains(low, "swift"):
+			set("swift", val)
+		}
+	}
+	// Invoice-header fallback: the issuer block has no labels.
+	if len(lines) > 0 {
+		set("name", lines[0])
+	}
+	for i, line := range lines {
+		ll := strings.ToLower(line)
+		if strings.HasPrefix(ll, "vl.") || strings.HasPrefix(ll, "vl ") {
+			set("owner", strings.TrimSpace(line[3:]))
+			if i+1 < len(lines) && !isLabelLine(lines[i+1]) {
+				set("address", lines[i+1])
+			}
+			if i+2 < len(lines) && !isLabelLine(lines[i+2]) {
+				set("place", lines[i+2])
+			}
+			break
+		}
+	}
+	if f["iban"] == "" {
+		if m := ibanRe.FindString(strings.Join(lines, "\n")); m != "" {
+			f["iban"] = collapseSpaces(m)
+		}
+	}
+	if f["oib"] == "" {
+		if m := oibRe.FindString(strings.Join(lines, "\n")); m != "" {
+			f["oib"] = m
+		}
+	}
+	return f
+}
+
+func isLabelLine(s string) bool { return strings.Contains(s, ":") || ibanRe.MatchString(s) }
+
+func collapseSpaces(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// saveCompanyFields updates the single company row. Column names are a fixed
+// whitelist, never file-derived, so the dynamic UPDATE is injection-safe.
+func saveCompanyFields(db *sql.DB, fields map[string]string) error {
+	allowed := map[string]bool{
+		"name": true, "owner": true, "oib": true, "address": true,
+		"owner_address": true, "place": true, "iban": true, "bank": true, "swift": true,
 	}
 	var sets []string
 	var args []any
 	for col, val := range fields {
+		if !allowed[col] {
+			continue
+		}
 		sets = append(sets, col+" = ?")
 		args = append(args, val)
 	}
-	args = append(args, 1)
-	if _, err := tx.Exec("UPDATE company SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...); err == nil {
-		res.Company = true
+	if len(sets) == 0 {
+		return nil
 	}
+	args = append(args, 1)
+	_, err := db.Exec("UPDATE company SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
+	return err
 }
 
 func viewInvoice(db *sql.DB) http.HandlerFunc {
@@ -1037,9 +1444,11 @@ func viewInvoice(db *sql.DB) http.HandlerFunc {
 		}
 		var v Invoice
 		var deletedAt sql.NullString
-		err = db.QueryRow(`SELECT i.id, i.number, i.issue_date, c.name, c.address, c.oib, i.note, i.deleted_at
+		err = db.QueryRow(`SELECT i.id, i.number, i.issue_date, i.issue_time, i.delivery_date,
+			i.due_date, i.payment_method, i.poziv, c.name, c.address, c.oib, i.note, i.deleted_at
 			FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.id = ?`, id).
-			Scan(&v.ID, &v.Number, &v.IssueDate, &v.Customer, &v.CustomerAddress, &v.CustomerOIB, &v.Note, &deletedAt)
+			Scan(&v.ID, &v.Number, &v.IssueDate, &v.IssueTime, &v.DeliveryDate, &v.DueDate,
+				&v.PaymentMethod, &v.Poziv, &v.Customer, &v.CustomerAddress, &v.CustomerOIB, &v.Note, &deletedAt)
 		v.Deleted = deletedAt.Valid
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
@@ -1078,8 +1487,8 @@ func viewInvoice(db *sql.DB) http.HandlerFunc {
 func loadCompany(db *sql.DB) (Company, error) {
 	var c Company
 	var vatExempt int
-	err := db.QueryRow(`SELECT name, owner, oib, address, place, iban, bank, owner_address, vat_exempt FROM company WHERE id = 1`).
-		Scan(&c.Name, &c.Owner, &c.OIB, &c.Address, &c.Place, &c.IBAN, &c.Bank, &c.OwnerAddress, &vatExempt)
+	err := db.QueryRow(`SELECT name, owner, oib, address, place, iban, bank, swift, owner_address, vat_exempt FROM company WHERE id = 1`).
+		Scan(&c.Name, &c.Owner, &c.OIB, &c.Address, &c.Place, &c.IBAN, &c.Bank, &c.Swift, &c.OwnerAddress, &vatExempt)
 	c.VatExempt = vatExempt != 0
 	return c, err
 }
@@ -1117,11 +1526,13 @@ func saveSettings(db *sql.DB) http.HandlerFunc {
 			Place:        strings.TrimSpace(r.FormValue("place")),
 			IBAN:         strings.TrimSpace(r.FormValue("iban")),
 			Bank:         strings.TrimSpace(r.FormValue("bank")),
+			Swift:        strings.TrimSpace(r.FormValue("swift")),
 			VatExempt:    r.FormValue("vat_exempt") != "",
 		}
 		lang := langOf(r)
 		errs := map[string]string{}
-		for field, val := range map[string]string{"name": c.Name, "owner": c.Owner, "oib": c.OIB} {
+		// OIB is optional (foreign sole traders and some obrti have none).
+		for field, val := range map[string]string{"name": c.Name, "owner": c.Owner} {
 			if val == "" {
 				errs[field] = tr(lang, "err_required")
 			}
@@ -1135,8 +1546,8 @@ func saveSettings(db *sql.DB) http.HandlerFunc {
 		if c.VatExempt {
 			vatExempt = 1
 		}
-		if _, err := db.Exec(`UPDATE company SET name=?, owner=?, oib=?, address=?, owner_address=?, place=?, iban=?, bank=?, vat_exempt=? WHERE id = 1`,
-			c.Name, c.Owner, c.OIB, c.Address, c.OwnerAddress, c.Place, c.IBAN, c.Bank, vatExempt); err != nil {
+		if _, err := db.Exec(`UPDATE company SET name=?, owner=?, oib=?, address=?, owner_address=?, place=?, iban=?, bank=?, swift=?, vat_exempt=? WHERE id = 1`,
+			c.Name, c.Owner, c.OIB, c.Address, c.OwnerAddress, c.Place, c.IBAN, c.Bank, c.Swift, vatExempt); err != nil {
 			httpErr(w, err)
 			return
 		}
@@ -1145,7 +1556,7 @@ func saveSettings(db *sql.DB) http.HandlerFunc {
 }
 
 func allCustomers(db *sql.DB) ([]Customer, error) {
-	rows, err := db.Query("SELECT id, name FROM customers ORDER BY name")
+	rows, err := db.Query("SELECT id, name, oib, address FROM customers ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
@@ -1153,12 +1564,43 @@ func allCustomers(db *sql.DB) ([]Customer, error) {
 	var cs []Customer
 	for rows.Next() {
 		var c Customer
-		if err := rows.Scan(&c.ID, &c.Name); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.OIB, &c.Address); err != nil {
 			return nil, err
 		}
 		cs = append(cs, c)
 	}
 	return cs, nil
+}
+
+// hrDate formats a stored ISO date ("2006-01-02") in the Croatian numeric style
+// ("05.07.2026."). Anything unparseable is returned as-is.
+func hrDate(iso string) string {
+	t, err := time.Parse("2006-01-02", iso)
+	if err != nil {
+		return iso
+	}
+	return t.Format("02.01.2006.")
+}
+
+// hrDateTime formats a stored UTC timestamp ("2006-01-02 15:04:05", from
+// datetime('now')) as Croatian date + time. This is the no-JS fallback; the
+// browser converts data-utc attributes to the viewer's local timezone.
+func hrDateTime(iso string) string {
+	t, err := time.Parse("2006-01-02 15:04:05", iso)
+	if err != nil {
+		return hrDate(iso)
+	}
+	return t.Format("02.01.2006. 15:04")
+}
+
+// isoUTC turns a stored SQLite UTC timestamp into an ISO-8601 instant with a Z
+// suffix, so the browser parses it as UTC and can localise it.
+func isoUTC(iso string) string {
+	t, err := time.Parse("2006-01-02 15:04:05", iso)
+	if err != nil {
+		return ""
+	}
+	return t.Format("2006-01-02T15:04:05Z")
 }
 
 // euroToCents parses "12.34" / "12,34" into integer cents.

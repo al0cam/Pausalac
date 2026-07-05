@@ -11,6 +11,37 @@
             min-width: 11rem
         }
 
+        .combo {
+            position: relative
+        }
+
+        /* fixed, not absolute: the items table lives in an overflow:auto
+           scroll box that would otherwise clip a dropdown hanging below the row.
+           Position is set in JS from the input's rect. */
+        .combo-list {
+            position: fixed;
+            z-index: 50;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+            max-height: 12rem;
+            overflow-y: auto;
+            background: var(--bg);
+            border: 1px solid var(--line);
+            border-radius: 4px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, .25)
+        }
+
+        .combo-list li {
+            padding: .4rem .6rem;
+            cursor: pointer
+        }
+
+        .combo-list li:hover {
+            background: var(--blue);
+            color: #fff
+        }
+
         .row td:nth-child(1) {
             width: 50%
         }
@@ -51,10 +82,66 @@
             fill: currentColor
         }
 
-        #catadd {
+        #catadd,
+        #custadd,
+        #nowbtn {
             background: none;
             color: var(--blue);
             border: 1px solid var(--line)
+        }
+
+        .now-row {
+            margin-top: .5rem
+        }
+
+        .cust-row {
+            display: flex;
+            gap: .5rem;
+            align-items: stretch
+        }
+
+        .cust-row select {
+            flex: 1
+        }
+
+        #custadd {
+            white-space: nowrap
+        }
+
+        .datefield {
+            display: flex;
+            gap: .5rem;
+            align-items: stretch
+        }
+
+        .date-display {
+            flex: 1
+        }
+
+        .date-btn {
+            background: none;
+            color: var(--blue);
+            border: 1px solid var(--line);
+            display: inline-flex;
+            align-items: center;
+            padding: 0 .7rem
+        }
+
+        .date-btn svg {
+            width: 1.2rem;
+            height: 1.2rem;
+            fill: currentColor
+        }
+
+        /* native picker drives the value but stays out of the layout */
+        .date-pick {
+            position: absolute;
+            width: 0;
+            height: 0;
+            padding: 0;
+            border: 0;
+            opacity: 0;
+            pointer-events: none
         }
 
         .rm {
@@ -92,7 +179,8 @@
             padding: .5rem 1rem
         }
 
-        .dlg-actions #catcancel {
+        .dlg-actions #catcancel,
+        .dlg-actions #custcancel {
             background: none;
             color: var(--fg);
             border: 1px solid var(--line)
@@ -108,22 +196,35 @@
     <p><small>{{T "number_auto"}}</small></p>
     {{end}}
     <label>{{T "date"}}</label>
-    <input type="date"
-           name="issue_date"
-           value="{{.IssueDate}}"
-           required
-           class="{{if .Errors.issue_date}}bad{{end}}">
+    {{template "datefield" (dict "Name" "issue_date" "Value" .IssueDate "Err" .Errors.issue_date)}}
     {{with .Errors.issue_date}}<span class="err">{{.}}</span>{{end}}
+    <label>{{T "issue_time"}}</label>
+    <input type="time" name="issue_time" value="{{.IssueTime}}">
+    <label>{{T "delivery_date"}}</label>
+    {{template "datefield" (dict "Name" "delivery_date" "Value" .DeliveryDate)}}
+    <label>{{T "due_date"}}</label>
+    {{template "datefield" (dict "Name" "due_date" "Value" .DueDate)}}
+    <div class="now-row">
+      <button type="button" id="nowbtn" title="{{T "fill_now_hint"}}">{{T "fill_now"}}</button>
+    </div>
     <label>{{T "customer"}}</label>
-    <select name="customer_id"
-            required
-            class="{{if .Errors.customer_id}}bad{{end}}">
-      <option value="">{{T "choose_customer"}}</option>
-      {{$cid := .CustomerID}}{{range .Customers}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) $cid}} selected{{end}}>{{.Name}}
-    </option>
-    {{end}}
-  </select>
+    <div class="cust-row">
+      <select name="customer_id"
+              id="customer_id"
+              required
+              class="{{if .Errors.customer_id}}bad{{end}}">
+        <option value="">{{T "choose_customer"}}</option>
+        {{$cid := .CustomerID}}{{range .Customers}}<option value="{{.ID}}"{{if eq (printf "%d" .ID) $cid}} selected{{end}}>{{.Name}}
+      </option>
+      {{end}}
+    </select>
+    <button type="button" id="custadd" title="{{T "new_customer"}}">+ {{T "customer"}}</button>
+  </div>
   {{with .Errors.customer_id}}<span class="err">{{.}}</span>{{end}}
+  <label>{{T "payment_method"}}</label>
+  <input name="payment_method" list="list-pay" value="{{.PaymentMethod}}">
+  <label>{{T "poziv_na_broj"}}</label>
+  <input name="poziv" value="{{.Poziv}}" placeholder="{{T "poziv_hint"}}">
   <label>{{T "note"}}</label>
   <input name="note" list="list-note" value="{{.Note}}">
   <div class="stavke-head">
@@ -155,7 +256,15 @@
         {{range .Items}}
         <tr class="row">
           <td>
-            <input name="description" list="list-product" value="{{.Description}}">
+            <div class="combo">
+              <input name="description"
+                     class="combo-input"
+                     autocomplete="off"
+                     value="{{.Description}}"
+                     placeholder="{{T "desc_hint"}}">
+              <ul class="combo-list" hidden>
+              </ul>
+            </div>
           </td>
           <td>
             <input name="unit"
@@ -195,6 +304,25 @@
 <datalist id="list-note">{{range .Catalog.Notes}}
   <option value="{{.}}"></option>
 {{end}}</datalist>
+<datalist id="list-pay">
+  <option value="{{T "pay_bank"}}"></option>
+  <option value="{{T "pay_cash"}}"></option>
+</datalist>
+<dialog id="custdlg">
+  <form id="custform">
+    <h3>{{T "new_customer"}}</h3>
+    <label>{{T "customer"}}</label>
+    <input id="custname" required>
+    <label>{{template "abbr-oib"}}</label>
+    <input id="custoib">
+    <label>{{T "company_address"}}</label>
+    <input id="custaddress">
+    <div class="dlg-actions">
+      <button type="button" id="custcancel">{{T "cancel"}}</button>
+      <button type="submit">{{T "add"}}</button>
+    </div>
+  </form>
+</dialog>
 <dialog id="catdlg">
   <form id="catform">
     <h3>{{T "catalog_add"}}</h3>
@@ -212,11 +340,84 @@
   </form>
 </dialog>
 <script>
+    // Croatian date fields: each shows DD.MM.GGGG. text while the submitted hidden
+    // field stays ISO (yyyy-mm-dd, what the server parses). A hidden native date
+    // input provides the calendar popup.
+    const toHr = iso => {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+        return m ? `${m[3]}.${m[2]}.${m[1]}.` : '';
+    };
+    const toIso = hr => {
+        const m = /^\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})\.?\s*$/.exec(hr);
+        if (!m) return '';
+        const d = m[1].padStart(2, '0'),
+            mo = m[2].padStart(2, '0'),
+            y = m[3];
+        const dt = new Date(`${y}-${mo}-${d}T00:00:00Z`);
+        // reject impossible dates like 31.02. (Date would roll over)
+        if (isNaN(dt) || dt.getUTCMonth() + 1 != +mo || dt.getUTCDate() != +d) return '';
+        return `${y}-${mo}-${d}`;
+    };
+    document.querySelectorAll('.datefield').forEach(f => {
+        const disp = f.querySelector('.date-display'),
+            iso = f.querySelector('.date-iso'),
+            pick = f.querySelector('.date-pick');
+        if (iso.value) {
+            disp.value = toHr(iso.value);
+            pick.value = iso.value;
+        }
+        disp.addEventListener('input', () => {
+            const v = toIso(disp.value);
+            iso.value = v;
+            pick.value = v;
+        });
+        pick.addEventListener('change', () => {
+            if (pick.value) {
+                iso.value = pick.value;
+                disp.value = toHr(pick.value);
+            }
+        });
+        f.querySelector('.date-btn').onclick = () => {
+            try {
+                pick.showPicker();
+            } catch (e) {
+                pick.focus();
+            }
+        };
+    });
+
+    // Write an ISO value into a named date field (keeps display + picker in sync).
+    const setDate = (name, iso) => {
+        const hidden = document.querySelector(`.date-iso[name="${name}"]`);
+        if (!hidden) return;
+        const f = hidden.closest('.datefield');
+        hidden.value = iso;
+        f.querySelector('.date-display').value = toHr(iso);
+        f.querySelector('.date-pick').value = iso;
+    };
+    // "Now": issue date/time + delivery date to today, due date to today + 15 days.
+    document.getElementById('nowbtn').onclick = () => {
+        const pad = n => String(n).padStart(2, '0');
+        const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        const now = new Date();
+        const due = new Date(now);
+        due.setDate(due.getDate() + 15);
+        setDate('issue_date', iso(now));
+        setDate('delivery_date', iso(now));
+        setDate('due_date', iso(due));
+        const t = document.querySelector('[name=issue_time]');
+        if (t) t.value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    };
+
     const items = document.getElementById('items');
     document.getElementById('add').onclick = () => {
         const row = items.rows[0].cloneNode(true);
         row.querySelectorAll('input').forEach(i => {
             i.value = i.name === 'quantity' ? '1' : '';
+        });
+        row.querySelectorAll('.combo-list').forEach(l => {
+            l.hidden = true;
+            l.textContent = '';
         });
         items.appendChild(row);
     };
@@ -224,17 +425,84 @@
         if (e.target.classList.contains('rm') && items.rows.length > 1) e.target.closest('tr').remove();
     });
 
-    // Picking a known article autofills that row's unit and price (only when empty,
-    // so it never clobbers something already typed).
+    // The description field is a combobox: type to improvise an article, or pick one
+    // from the list it drops down. Options come from the (hidden) article datalist.
+    const ARTICLES = [...document.getElementById('list-product').options].map(o => ({
+        name: o.value,
+        unit: o.dataset.unit || '',
+        price: o.dataset.price || ''
+    }));
+    const showList = input => {
+        const box = input.nextElementSibling;
+        const q = input.value.trim().toLowerCase();
+        const hits = ARTICLES.filter(a => a.name.toLowerCase().includes(q));
+        box.textContent = '';
+        if (!hits.length) {
+            box.hidden = true;
+            return;
+        }
+        hits.forEach(a => {
+            const li = document.createElement('li');
+            li.textContent = a.name;
+            li.dataset.unit = a.unit;
+            li.dataset.price = a.price;
+            box.appendChild(li);
+        });
+        // fixed position -> place it under the input each time it opens
+        const r = input.getBoundingClientRect();
+        box.style.left = r.left + 'px';
+        box.style.top = r.bottom + 'px';
+        box.style.width = r.width + 'px';
+        box.hidden = false;
+    };
+    items.addEventListener('focusin', e => {
+        if (e.target.classList.contains('combo-input')) showList(e.target);
+    });
     items.addEventListener('input', e => {
-        if (e.target.name !== 'description') return;
-        const opt = [...document.getElementById('list-product').options].find(o => o.value === e.target.value);
-        if (!opt || opt.dataset.price === undefined) return;
-        const row = e.target.closest('tr');
+        if (e.target.classList.contains('combo-input')) showList(e.target);
+    });
+    items.addEventListener('focusout', e => {
+        if (e.target.classList.contains('combo-input')) e.target.nextElementSibling.hidden = true;
+    });
+    // mousedown (not click) so it fires before the input's focusout hides the list;
+    // preventDefault keeps focus on the input. Selecting fills the whole row.
+    items.addEventListener('mousedown', e => {
+        const li = e.target.closest('.combo-list li');
+        if (!li) return;
+        e.preventDefault();
+        const row = li.closest('tr');
+        row.querySelector('[name=description]').value = li.textContent;
         const unit = row.querySelector('[name=unit]'),
             price = row.querySelector('[name=unit_price]');
-        if (unit && !unit.value) unit.value = opt.dataset.unit || '';
-        if (price && !price.value) price.value = opt.dataset.price;
+        if (unit) unit.value = li.dataset.unit || '';
+        if (price) price.value = li.dataset.price || '';
+        li.parentElement.hidden = true;
+    });
+
+    // Add a customer on the spot: persist it, then add and select the new option.
+    const custDlg = document.getElementById('custdlg');
+    document.getElementById('custadd').onclick = () => custDlg.showModal();
+    document.getElementById('custcancel').onclick = () => custDlg.close();
+    document.getElementById('custform').addEventListener('submit', async e => {
+        e.preventDefault();
+        const name = document.getElementById('custname').value.trim();
+        if (!name) return;
+        const res = await fetch('/customers/quick', {
+            method: 'POST',
+            body: new URLSearchParams({
+                name,
+                oib: document.getElementById('custoib').value.trim(),
+                address: document.getElementById('custaddress').value.trim()
+            })
+        });
+        if (res.ok) {
+            const c = await res.json();
+            const sel = document.getElementById('customer_id');
+            const o = new Option(c.name, c.id, true, true);
+            sel.add(o);
+            ['custname', 'custoib', 'custaddress'].forEach(id => document.getElementById(id).value = '');
+            custDlg.close();
+        }
     });
 
     // Add a šifrarnik value on the spot: persist it, then drop it into the matching

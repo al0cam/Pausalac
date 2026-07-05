@@ -87,8 +87,9 @@
         {{T "owner_abbr"}} {{.Company.Owner}}
         <br>
         {{.Company.Address}}
+        {{if .Company.OIB}}
         <br>
-        {{template "abbr-oib"}}: {{.Company.OIB}}
+        {{template "abbr-oib"}}: {{.Company.OIB}}{{end}}
       </div>
       <div class="party">
         <small>{{T "customer_label"}}</small>
@@ -102,7 +103,19 @@
     </div>
     <h1>{{T "invoice"}} {{.Invoice.Number}}</h1>
     <p>
-      {{T "place_date"}}: <b>{{.Company.Place}}, {{.Invoice.IssueDate}}</b>
+      {{T "place_date"}}: <b>{{.Company.Place}}, {{date .Invoice.IssueDate}}{{if .Invoice.IssueTime}} {{.Invoice.IssueTime}}{{end}}</b>
+      {{if .Invoice.DeliveryDate}}
+      <br>
+      {{T "delivery_date"}}: {{date .Invoice.DeliveryDate}}{{end}}
+      {{if .Invoice.DueDate}}
+      <br>
+      {{T "due_date"}}: {{date .Invoice.DueDate}}{{end}}
+      {{if .Invoice.PaymentMethod}}
+      <br>
+      {{T "payment_method"}}: {{.Invoice.PaymentMethod}}{{end}}
+      {{if .Invoice.Poziv}}
+      <br>
+      {{T "poziv_na_broj"}}: {{.Invoice.Poziv}}{{end}}
       {{if .Invoice.Note}}
       <br>
       {{T "note"}}: {{.Invoice.Note}}{{end}}
@@ -110,13 +123,13 @@
     {{template "items-table" (dict "Items" .Items "Totals" .Totals "VatExempt" .Company.VatExempt)}}
     <p>{{T "issued_by"}}: {{.Company.Owner}}</p>
     <div class="foot">
-      {{.Company.Name}}, {{T "owner_abbr"}} {{.Company.Owner}}, {{.Company.Address}}, {{template "abbr-oib"}}: {{.Company.OIB}}
+      {{.Company.Name}}, {{T "owner_abbr"}} {{.Company.Owner}}, {{.Company.Address}}{{if .Company.OIB}}, {{template "abbr-oib"}}: {{.Company.OIB}}{{end}}
       {{if and .Company.OwnerAddress (ne .Company.OwnerAddress .Company.Address)}}
       <br>
       {{T "owner_address"}}: {{.Company.OwnerAddress}}{{end}}
       {{if .Company.IBAN}}
       <br>
-      {{template "abbr-iban"}}: {{.Company.IBAN}}{{if .Company.Bank}} {{T "iban_at"}} {{.Company.Bank}}{{end}}{{end}}
+      {{template "abbr-iban"}}: {{.Company.IBAN}}{{if .Company.Bank}} {{T "iban_at"}} {{.Company.Bank}}{{end}}{{if .Company.Swift}} (SWIFT {{.Company.Swift}}){{end}}{{end}}
     </div>
   </body>
 </html>

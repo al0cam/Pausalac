@@ -225,6 +225,7 @@
   <a href="/"{{if eq . "list"}} class="active"{{end}}>{{T "invoices"}}</a>
   <a href="/invoices/new"{{if eq . "new"}} class="active"{{end}}>{{T "new_invoice"}}</a>
   <a href="/articles"{{if eq . "articles"}} class="active"{{end}}>{{T "articles"}}</a>
+  <a href="/customers"{{if eq . "customers"}} class="active"{{end}}>{{T "customers"}}</a>
   <a href="/import"{{if eq . "import"}} class="active"{{end}}>{{T "import"}}</a>
   <a href="/settings"{{if eq . "settings"}} class="active"{{end}}>{{T "settings"}}</a>
   <span class="lang">
@@ -258,6 +259,28 @@
 <svg viewBox="0 0 24 24" aria-hidden="true">
   <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
 </svg>
+{{end}}
+{{/* Croatian date field: visible DD.MM.GGGG. text + hidden ISO value (what the
+     server parses) + a native picker for the calendar popup. Wired up by the
+     .datefield JS on the invoice form. Context: { Name, Value, Err }. */}}
+{{define "datefield"}}
+<div class="datefield">
+  <input type="text"
+         class="date-display{{if .Err}} bad{{end}}"
+         inputmode="numeric"
+         autocomplete="off"
+         placeholder="DD.MM.GGGG.">
+  <button type="button"
+          class="date-btn"
+          title="{{T "date"}}"
+          aria-label="{{T "date"}}">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z" />
+    </svg>
+  </button>
+  <input type="date" class="date-pick" tabindex="-1" aria-hidden="true">
+  <input type="hidden" name="{{.Name}}" class="date-iso" value="{{.Value}}">
+</div>
 {{end}}
 {{/* Abbreviation labels with an explanatory tooltip, reused across pages. */}}
 {{define "abbr-oib"}}<abbr title="{{T "oib_full"}}">OIB</abbr>{{end}}

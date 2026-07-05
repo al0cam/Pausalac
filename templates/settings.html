@@ -50,11 +50,7 @@
              class="{{if .Errors.owner}}bad{{end}}">
       {{with .Errors.owner}}<span class="err">{{.}}</span>{{end}}
       <label>{{template "abbr-oib"}}</label>
-      <input name="oib"
-             value="{{.Company.OIB}}"
-             required
-             class="{{if .Errors.oib}}bad{{end}}">
-      {{with .Errors.oib}}<span class="err">{{.}}</span>{{end}}
+      <input name="oib" value="{{.Company.OIB}}">
       <label>{{T "company_address"}}</label>
       <input name="address" value="{{.Company.Address}}">
       <label>{{T "owner_address"}}</label>
@@ -65,6 +61,8 @@
       <input name="iban" value="{{.Company.IBAN}}">
       <label>{{T "company_bank"}}</label>
       <input name="bank" value="{{.Company.Bank}}">
+      <label>{{T "company_swift"}}</label>
+      <input name="swift" value="{{.Company.Swift}}">
       <label class="check">
         <input type="checkbox"
                name="vat_exempt"

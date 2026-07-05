@@ -41,14 +41,27 @@
     <div class="rev">
       <div class="rev-head">
         <b>{{T (printf "rev_%s" .Action)}}</b>
-        <span class="when">{{.ChangedAt}}</span>
+        <span class="when" data-utc="{{isoutc .ChangedAt}}">{{datetime .ChangedAt}}</span>
       </div>
-      <div class="meta">{{T "date"}}: {{.Snap.IssueDate}} &middot; {{T "customer"}}: {{.Snap.Customer}}{{if .Snap.Note}} &middot; {{T "note"}}: {{.Snap.Note}}{{end}}</div>
+      <div class="meta">{{T "date"}}: {{date .Snap.IssueDate}} &middot; {{T "customer"}}: {{.Snap.Customer}}{{if .Snap.Note}} &middot; {{T "note"}}: {{.Snap.Note}}{{end}}</div>
       {{template "items-table" (dict "Items" .Snap.Items "Totals" .Snap.Totals "VatExempt" .Snap.VatExempt)}}
     </div>
   {{else}}
     <p>{{T "no_history"}}</p>
     {{end}}
+    <script>
+        // changed_at is stored UTC; render it in the viewer's local timezone.
+        document.querySelectorAll('[data-utc]').forEach(function(el) {
+            var d = new Date(el.dataset.utc);
+            if (!isNaN(d)) el.textContent = d.toLocaleString('hr-HR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        });
+    </script>
   </body>
 </html>
 {{end}}

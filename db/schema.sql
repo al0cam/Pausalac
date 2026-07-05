@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS company (
   place         TEXT NOT NULL DEFAULT '',      -- mjesto izdavanja (business seat city)
   iban          TEXT NOT NULL DEFAULT '',
   bank          TEXT NOT NULL DEFAULT '',      -- naziv banke
+  swift         TEXT NOT NULL DEFAULT '',      -- SWIFT/BIC banke
   owner_address TEXT NOT NULL DEFAULT '',      -- adresa vlasnika (may differ from business)
   vat_exempt    INTEGER NOT NULL DEFAULT 1     -- 1 = not in PDV sustav: PDV 0 + exemption note
 );
@@ -24,12 +25,17 @@ CREATE TABLE IF NOT EXISTS customers (
 
 CREATE TABLE IF NOT EXISTS invoices (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  number      TEXT NOT NULL UNIQUE,
-  issue_date  TEXT NOT NULL,            -- ISO YYYY-MM-DD
-  customer_id INTEGER NOT NULL REFERENCES customers(id),
-  note        TEXT NOT NULL DEFAULT '',
-  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-  deleted_at  TEXT                      -- soft delete: non-NULL means deleted
+  number         TEXT NOT NULL UNIQUE,
+  issue_date     TEXT NOT NULL,            -- ISO YYYY-MM-DD
+  customer_id    INTEGER NOT NULL REFERENCES customers(id),
+  note           TEXT NOT NULL DEFAULT '',
+  issue_time     TEXT NOT NULL DEFAULT '', -- vrijeme izrade (HH:MM)
+  delivery_date  TEXT NOT NULL DEFAULT '', -- datum isporuke (ISO)
+  due_date       TEXT NOT NULL DEFAULT '', -- dospijeće plaćanja (ISO)
+  payment_method TEXT NOT NULL DEFAULT '', -- način plaćanja
+  poziv          TEXT NOT NULL DEFAULT '', -- poziv na broj (payment reference)
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  deleted_at     TEXT                      -- soft delete: non-NULL means deleted
 );
 
 -- Append-only audit log: one row per create/edit/delete, with a self-contained

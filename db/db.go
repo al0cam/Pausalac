@@ -59,6 +59,12 @@ func migrate(conn *sql.DB) error {
 		`ALTER TABLE invoice_items ADD COLUMN unit TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE invoice_items ADD COLUMN discount_pct REAL NOT NULL DEFAULT 0`,
 		`ALTER TABLE company ADD COLUMN vat_exempt INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE company ADD COLUMN swift TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE invoices ADD COLUMN issue_time TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE invoices ADD COLUMN delivery_date TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE invoices ADD COLUMN due_date TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE invoices ADD COLUMN payment_method TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE invoices ADD COLUMN poziv TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, s := range stmts {
 		if _, err := conn.Exec(s); err != nil && !strings.Contains(err.Error(), "duplicate column name") {

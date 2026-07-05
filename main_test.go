@@ -2,10 +2,12 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -61,11 +63,15 @@ func TestCreateInvoice(t *testing.T) {
 	defer srv.Close()
 
 	form := url.Values{
-		"issue_date":  {"2025-02-01"}, // number is auto-generated, not sent
-		"customer_id": {"1"},
-		"description": {"Usluga A", "Usluga B", ""}, // blank row must be skipped
-		"quantity":    {"2", "1", "1"},
-		"unit_price":  {"10,00", "5,50", ""}, // comma decimals must parse
+		"issue_date":     {"2025-02-01"}, // number is auto-generated, not sent
+		"customer_id":    {"1"},
+		"delivery_date":  {"2025-02-03"},
+		"due_date":       {"2025-02-15"},
+		"payment_method": {"Transakcijski račun"},
+		"poziv":          {"2-2-2025"},
+		"description":    {"Usluga A", "Usluga B", ""}, // blank row must be skipped
+		"quantity":       {"2", "1", "1"},
+		"unit_price":     {"10,00", "5,50", ""}, // comma decimals must parse
 	}
 	resp, err := http.PostForm(srv.URL+"/invoices", form)
 	if err != nil {
@@ -80,8 +86,14 @@ func TestCreateInvoice(t *testing.T) {
 	if !strings.Contains(b, "2/2/2025") {
 		t.Fatalf("expected generated number 2/2/2025, got:\n%s", b)
 	}
+	// header/footer fields round-trip and render in Croatian date format
+	for _, want := range []string{"03.02.2025.", "15.02.2025.", "Transakcijski račun", "2-2-2025"} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("invoice view missing header field %q in:\n%s", want, b)
+		}
+	}
 	// view must show the issuer company and place/date of issue
-	for _, want := range []string{"Sitna riba", "Mjesto i datum izdavanja", "Zagreb, 2025-02-01"} {
+	for _, want := range []string{"Sitna riba", "Mjesto i datum izdavanja", "Zagreb, 01.02.2025."} {
 		if !strings.Contains(b, want) {
 			t.Fatalf("invoice view missing issuer info %q in:\n%s", want, b)
 		}
@@ -323,6 +335,82 @@ func TestArticles(t *testing.T) {
 	}
 }
 
+func TestCustomers(t *testing.T) {
+	db := freshDB(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /customers", listCustomers(db))
+	mux.HandleFunc("POST /customers", createCustomer(db))
+	mux.HandleFunc("POST /customers/quick", quickCustomer(db))
+	mux.HandleFunc("POST /customers/{id}/delete", deleteCustomer(db))
+	mux.HandleFunc("GET /invoices/new", newInvoice(db))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
+	// tab: create a customer, it shows in the list and on the invoice form
+	resp, err := client.PostForm(srv.URL+"/customers", url.Values{
+		"name": {" Acme d.o.o."}, "oib": {"12345678901"}, "address": {"Ilica 1, Zagreb"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("create customer status = %d, want 303", resp.StatusCode)
+	}
+	if b := body(t, mustGet(t, http.DefaultClient, srv.URL+"/customers")); !strings.Contains(b, "Acme d.o.o.") || !strings.Contains(b, "Ilica 1, Zagreb") {
+		t.Fatalf("customer not listed:\n%s", b)
+	}
+	if b := body(t, mustGet(t, http.DefaultClient, srv.URL+"/invoices/new")); !strings.Contains(b, "Acme d.o.o.") {
+		t.Fatalf("customer not offered on invoice form:\n%s", b)
+	}
+
+	// modal: quick-add returns the new row as JSON so the page can select it
+	resp, err = client.PostForm(srv.URL+"/customers/quick", url.Values{"name": {"Beta obrt"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("quick customer status = %d, want 200", resp.StatusCode)
+	}
+	var got struct {
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ID == 0 || got.Name != "Beta obrt" {
+		t.Fatalf("quick customer json = %+v", got)
+	}
+
+	// the seed's demo customer is referenced by the seed invoice: delete must be refused
+	resp, err = client.PostForm(srv.URL+"/customers/1/delete", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loc := resp.Header.Get("Location"); !strings.Contains(loc, "err=inuse") {
+		t.Fatalf("referenced customer delete redirected to %q, want err=inuse", loc)
+	}
+}
+
+func TestHrDate(t *testing.T) {
+	if got := hrDate("2026-07-05"); got != "05.07.2026." {
+		t.Errorf("hrDate = %q, want 05.07.2026.", got)
+	}
+	if got := hrDateTime("2026-07-05 14:30:00"); got != "05.07.2026. 14:30" {
+		t.Errorf("hrDateTime = %q, want 05.07.2026. 14:30", got)
+	}
+	// unparseable input is passed through untouched
+	if got := hrDate("n/a"); got != "n/a" {
+		t.Errorf("hrDate passthrough = %q", got)
+	}
+	// isoUTC marks the instant as UTC so the browser can localise it
+	if got := isoUTC("2026-07-05 14:30:00"); got != "2026-07-05T14:30:00Z" {
+		t.Errorf("isoUTC = %q, want 2026-07-05T14:30:00Z", got)
+	}
+}
+
 // computeTotals is the money path: discount reduces the base, VAT applies only
 // when not exempt, and it's charged on the whole base.
 func TestComputeTotals(t *testing.T) {
@@ -388,4 +476,53 @@ func TestCreateInvoiceValidationRedisplay(t *testing.T) {
 			t.Fatalf("redisplayed form missing %q in:\n%s", want, b)
 		}
 	}
+}
+
+// TestImportFormats runs local sample invoices through the extractor. The
+// pdf/xlsm/ods samples are the same invoice in three formats, so every format
+// must extract identical fields (this catches format-specific parsing bugs
+// without hardcoding anyone's personal data). Skips if the untracked, private
+// invoices/ folder is absent — the samples contain real details and are never
+// committed.
+func TestImportFormats(t *testing.T) {
+	if _, err := os.Stat("invoices"); err != nil {
+		t.Skip("no sample invoices/ folder")
+	}
+	samples := []string{
+		"invoices/1-06-26.pdf",
+		"invoices/Tablica za izradu računa ENG.xlsm",
+		"invoices/Tablica za izradu računa.ods",
+	}
+	var first map[string]string
+	for _, f := range samples {
+		lines, err := readDocLines(f, mustRead(t, f))
+		if err != nil {
+			t.Fatalf("%s: readDocLines: %v", f, err)
+		}
+		c := extractCompany(lines)
+		for _, k := range []string{"name", "owner", "iban", "bank", "swift"} {
+			if c[k] == "" {
+				t.Errorf("%s: %s not extracted", f, k)
+			}
+		}
+		if first == nil {
+			first = c
+			continue
+		}
+		// Same invoice, different format: fields must agree.
+		for _, k := range []string{"name", "owner", "iban", "bank", "swift"} {
+			if c[k] != first[k] {
+				t.Errorf("%s: %s = %q, differs from pdf %q", f, k, c[k], first[k])
+			}
+		}
+	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return b
 }

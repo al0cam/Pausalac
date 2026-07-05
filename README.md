@@ -133,11 +133,11 @@ Invoice line items:
 
 Invoice header / footer fields:
 
-- [ ] **Payment due date** (Dospijeće plaćanja)
-- [ ] **Delivery date** (Datum isporuke)
-- [ ] **Time of issue** (Vrijeme izrade) — alongside the date
-- [ ] **Payment method** (Način plaćanja)
-- [ ] **Poziv na broj** (payment reference, typically the invoice number)
+- [x] **Payment due date** (Dospijeće plaćanja)
+- [x] **Delivery date** (Datum isporuke)
+- [x] **Time of issue** (Vrijeme izrade) — alongside the date
+- [x] **Payment method** (Način plaćanja) — with bank/cash suggestions
+- [x] **Poziv na broj** (payment reference, typically the invoice number)
 - [ ] **Operator mark** (Oznaka operatera)
 - [ ] **Customer city** (Mjesto) as a separate field from address
 
