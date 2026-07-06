@@ -58,6 +58,59 @@
             display: block
         }
 
+        .pay {
+            margin-top: 1.5rem;
+            padding-top: .75rem;
+            border-top: 1px solid var(--line)
+        }
+
+        .pay.paid {
+            color: #2e7d32;
+            border: 0
+        }
+
+        @media(prefers-color-scheme:dark) {
+            .pay.paid {
+                color: #81c784
+            }
+        }
+
+        .pay h3 {
+            margin: 0 0 .25rem
+        }
+
+        /* Broj izvoda: its own labelled, highlighted field, distinct from the
+           collected summary above it. */
+        .izvod {
+            margin: .6rem 0 0
+        }
+
+        .izvod-label {
+            display: block;
+            color: var(--muted);
+            font-size: .75rem;
+            text-transform: uppercase;
+            letter-spacing: .04em
+        }
+
+        .izvod-val {
+            display: inline-block;
+            margin-top: .15rem;
+            padding: .2rem .6rem;
+            font-weight: bold;
+            color: var(--fg);
+            background: rgba(21, 101, 192, .12);
+            border: 1px solid var(--blue);
+            border-radius: 4px
+        }
+
+        .clearpay {
+            margin-top: .75rem;
+            background: none;
+            color: var(--red);
+            border: 1px solid var(--line)
+        }
+
         @media print {
 
             a,
@@ -73,6 +126,7 @@
     <p class="deleted noprint">{{T "deleted_notice"}}</p>
     {{end}}
     <p class="noprint actions">
+      {{if and (not .Invoice.Deleted) (not .Invoice.Paid)}}<a href="#pay" title="{{T "collect"}}" aria-label="{{T "collect"}}">{{template "icon-collect"}}</a>{{end}}
       {{if not .Invoice.Deleted}}<a href="/invoices/{{.Invoice.ID}}/edit"
    title="{{T "edit"}}"
    aria-label="{{T "edit"}}">{{template "icon-edit"}}</a>{{end}}
@@ -121,6 +175,46 @@
       {{T "note"}}: {{.Invoice.Note}}{{end}}
     </p>
     {{template "items-table" (dict "Items" .Items "Totals" .Totals "VatExempt" .Company.VatExempt)}}
+    {{if .Invoice.Paid}}
+    <div class="pay paid">
+      <p><b>{{T "paid_label"}}:</b> {{date .Invoice.PaidDate}} &middot; {{eur .Invoice.PaidCents}} &middot; {{T .Invoice.PaidMethodKey}}</p>
+      {{if .Invoice.PaymentRef}}
+      <p class="izvod">
+        <span class="izvod-label">{{T "payment_ref"}}</span>
+        <span class="izvod-val">{{.Invoice.PaymentRef}}</span>
+      </p>
+      {{end}}
+    </div>
+    {{if not .Invoice.Deleted}}
+    <form class="noprint"
+          method="post"
+          action="/invoices/{{.Invoice.ID}}/payment/clear"
+          onsubmit="return confirm('{{T "confirm_clear_payment"}}')">
+      <button type="submit" class="clearpay">{{T "clear_payment"}}</button>
+    </form>
+    {{end}}
+    {{else if not .Invoice.Deleted}}
+    <div class="pay noprint" id="pay">
+      <h3>{{T "record_payment"}}</h3>
+      {{if .PayErr}}
+      <p class="err">{{T "err_payment"}}</p>
+      {{end}}
+      <form method="post" action="/invoices/{{.Invoice.ID}}/payment">
+        <label>{{T "paid_date"}}</label>
+        {{template "datefield" (dict "Name" "paid_date" "Value" .Today)}}
+        <label>{{T "collected_amount"}}</label>
+        <input name="amount" value="{{.PaidDefault}}" placeholder="0,00">
+        <label>{{T "payment_method"}}</label>
+        <select name="method">
+          <option value="virmanski">{{T "method_bank"}}</option>
+          <option value="gotovina">{{T "method_cash"}}</option>
+        </select>
+        <label>{{T "payment_ref"}}</label>
+        <input name="payment_ref">
+        <button type="submit">{{T "save"}}</button>
+      </form>
+    </div>
+    {{end}}
     <p>{{T "issued_by"}}: {{.Company.Owner}}</p>
     <div class="foot">
       {{.Company.Name}}, {{T "owner_abbr"}} {{.Company.Owner}}, {{.Company.Address}}{{if .Company.OIB}}, {{template "abbr-oib"}}: {{.Company.OIB}}{{end}}

@@ -19,10 +19,6 @@
             border-radius: 4px;
             background: var(--bg)
         }
-
-        button[type=submit] {
-            margin-top: 1.5rem
-        }
     </style>
   </head>
   <body>
@@ -33,15 +29,17 @@
     {{if .Err}}
     <p class="err">{{.Err}}</p>
   {{else}}
+    {{if .Company}}
     <p class="ok">{{T "import_done"}}</p>
+    {{end}}
+    {{if gt .Invoices 0}}
+    <p class="ok">{{T "import_invoices_label"}}: {{.Invoices}} &middot; {{T "import_customers_label"}}: {{.Customers}}</p>
+    {{end}}
     {{end}}
     {{end}}
     <form method="post" action="/import" enctype="multipart/form-data">
       <label>{{T "import_file"}}</label>
-      <input type="file"
-             name="file"
-             accept=".xlsx,.xlsm,.ods,.pdf"
-             required>
+      <input type="file" name="file" accept=".xlsx,.xlsm,.ods,.pdf" required>
       <div>
         <button type="submit">{{T "import_run"}}</button>
       </div>

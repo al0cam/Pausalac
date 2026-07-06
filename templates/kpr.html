@@ -1,0 +1,99 @@
+{{define "kpr.html"}}<!DOCTYPE html>
+<html lang="{{T "lang_code"}}">
+  <head>
+    {{template "head" .}}<title>{{T "kpr"}} {{.Year}}</title>
+    <style>
+        .kpr-head {
+            font-size: .9rem;
+            margin-bottom: 1rem
+        }
+
+        .kpr-head div {
+            margin: .15rem 0
+        }
+
+        .years {
+            display: flex;
+            gap: .75rem;
+            align-items: center;
+            flex-wrap: wrap
+        }
+
+        .years a.on {
+            color: var(--blue);
+            font-weight: bold
+        }
+
+        tfoot td {
+            font-weight: bold;
+            border-top: 2px solid var(--fg)
+        }
+
+        @media print {
+            .noprint {
+                display: none
+            }
+        }
+    </style>
+  </head>
+  <body>
+    {{template "nav" "kpr"}}
+    <h1>{{T "kpr_title"}} &mdash; {{.Year}}</h1>
+    <div class="kpr-head">
+      <div><b>{{.Company.Name}}</b></div>
+      <div>{{T "owner_abbr"}} {{.Company.Owner}}{{if .Company.OwnerAddress}}, {{.Company.OwnerAddress}}{{else if .Company.Address}}, {{.Company.Address}}{{end}}</div>
+      {{if .Company.OIB}}
+      <div>{{template "abbr-oib"}}: {{.Company.OIB}}</div>
+      {{end}}
+    </div>
+    {{if .Years}}
+    <p class="years noprint">
+      <span>{{T "kpr_year"}}:</span>
+      {{range .Years}}<a href="/kpr?year={{.}}"{{if eq . $.Year}} class="on"{{end}}>{{.}}</a>{{end}}
+    </p>
+    {{end}}
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th class="r">{{T "kpr_no"}}</th>
+            <th>{{T "kpr_date"}}</th>
+            <th>{{T "kpr_ref"}}</th>
+            <th>{{T "kpr_invoice"}}</th>
+            <th class="r">{{T "kpr_cash"}}</th>
+            <th class="r">{{T "kpr_bank"}}</th>
+            <th class="r">{{T "kpr_total"}}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Rows}}
+          <tr>
+            <td class="r">{{.No}}.</td>
+            <td>{{date .Date}}</td>
+            <td>{{.Ref}}</td>
+            <td>{{.Number}}</td>
+            <td class="r">{{eur .CashCents}}</td>
+            <td class="r">{{eur .BankCents}}</td>
+            <td class="r">{{eur .TotalCents}}</td>
+          </tr>
+        {{else}}
+          <tr>
+            <td colspan="7">{{T "kpr_empty"}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+        {{if .Rows}}
+        <tfoot>
+          <tr>
+            <td colspan="4" class="r">{{T "kpr_sum"}}</td>
+            <td class="r">{{eur .CashTotal}}</td>
+            <td class="r">{{eur .BankTotal}}</td>
+            <td class="r">{{eur .GrandTotal}}</td>
+          </tr>
+        </tfoot>
+        {{end}}
+      </table>
+    </div>
+  </body>
+</html>
+{{end}}

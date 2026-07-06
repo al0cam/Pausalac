@@ -107,8 +107,8 @@ The entire app state is one SQLite file. Back up = copy `DB_PATH` (or the
 
 - [x] **Articles (artikli)** — dedicated tab to manage products/services (name, unit, price); offered as invoice-line suggestions that autofill unit + price
 - [ ] **Customer loading via QR** — scan a QR code to fill in customer details for faster invoice creation
-- [~] **Excel import** — import from existing Plavi ured `.xlsx`. Done: company data (PODACI sheet). Pending: invoices + customers (BAZA sheet), to land with KPR.
-- [ ] **Customer management** — add/edit customers in-app (currently seed-only)
+- [x] **Excel import** — import from an existing invoice or Plavi ured workbook (`.xlsx`, `.xlsm`, `.ods`, `.pdf`): company data (PODACI sheet / invoice header) and, from Plavi ured workbooks, invoices + customers (BAZA sheet). Idempotent — re-importing skips invoices whose number already exists.
+- [x] **Customer management** — add/edit/delete customers in-app, plus an on-the-spot modal on the invoice form
 - [x] **Company settings page** — edit obrt master data in-app (`/settings`)
 - [x] **Catalogs (šifranici)** — datalist suggestions for products/services, units (kg, kom, l, sat), and note presets on the invoice form, plus an on-the-spot modal to add new values
 
@@ -120,8 +120,8 @@ app does not model yet. Line-item and header fields below are independent and ch
 
 Core (legally required, payment-based):
 
-- [ ] **Payment / collection tracking** — per invoice: collected amount, date paid, and method (cash `gotovina` vs bank transfer `virmanski`). Prerequisite for KPR and PO-SD; also enables a paid/unpaid (nenaplaćeni računi) view.
-- [ ] **Knjiga prometa (KPR)** — mandatory turnover ledger built from collected payments: redni broj, nadnevak, broj temeljnice, broj računa, iznos u gotovini, iznos virmanski, ukupno naplaćeno.
+- [x] **Payment / collection tracking** — per invoice: collected amount, date paid, and method (cash `gotovina` vs bank transfer `virmanski`, stored as separate cash/bank cents for KPR). Recorded from the invoice view; imported from the BAZA sheet; drives a paid/unpaid (nenaplaćeni računi) list filter. Prerequisite for KPR and PO-SD.
+- [x] **Knjiga prometa (KPR)** — turnover ledger at `/kpr`, per calendar year, built from collected payments: redni broj, nadnevak, broj temeljnice, broj računa, iznos u gotovini, iznos virmanski, ukupno naplaćeno, with cash/bank/total sums. Print-friendly.
 - [ ] **Obrazac PO-SD** — annual flat-tax report: yearly receipts (cash + non-cash), tax base, paušalni porez, prirez, months of operation. Needs tax-bracket tables (`razine`) + months-of-operation logic.
 
 Invoice line items:

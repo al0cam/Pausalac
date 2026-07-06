@@ -108,49 +108,9 @@
             white-space: nowrap
         }
 
-        .datefield {
-            display: flex;
-            gap: .5rem;
-            align-items: stretch
-        }
-
-        .date-display {
-            flex: 1
-        }
-
-        .date-btn {
-            background: none;
-            color: var(--blue);
-            border: 1px solid var(--line);
-            display: inline-flex;
-            align-items: center;
-            padding: 0 .7rem
-        }
-
-        .date-btn svg {
-            width: 1.2rem;
-            height: 1.2rem;
-            fill: currentColor
-        }
-
-        /* native picker drives the value but stays out of the layout */
-        .date-pick {
-            position: absolute;
-            width: 0;
-            height: 0;
-            padding: 0;
-            border: 0;
-            opacity: 0;
-            pointer-events: none
-        }
-
         .rm {
             background: var(--red);
             padding: .2rem .55rem
-        }
-
-        button[type=submit] {
-            margin-top: 1rem
         }
 
         dialog {
@@ -340,51 +300,8 @@
   </form>
 </dialog>
 <script>
-    // Croatian date fields: each shows DD.MM.GGGG. text while the submitted hidden
-    // field stays ISO (yyyy-mm-dd, what the server parses). A hidden native date
-    // input provides the calendar popup.
-    const toHr = iso => {
-        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-        return m ? `${m[3]}.${m[2]}.${m[1]}.` : '';
-    };
-    const toIso = hr => {
-        const m = /^\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})\.?\s*$/.exec(hr);
-        if (!m) return '';
-        const d = m[1].padStart(2, '0'),
-            mo = m[2].padStart(2, '0'),
-            y = m[3];
-        const dt = new Date(`${y}-${mo}-${d}T00:00:00Z`);
-        // reject impossible dates like 31.02. (Date would roll over)
-        if (isNaN(dt) || dt.getUTCMonth() + 1 != +mo || dt.getUTCDate() != +d) return '';
-        return `${y}-${mo}-${d}`;
-    };
-    document.querySelectorAll('.datefield').forEach(f => {
-        const disp = f.querySelector('.date-display'),
-            iso = f.querySelector('.date-iso'),
-            pick = f.querySelector('.date-pick');
-        if (iso.value) {
-            disp.value = toHr(iso.value);
-            pick.value = iso.value;
-        }
-        disp.addEventListener('input', () => {
-            const v = toIso(disp.value);
-            iso.value = v;
-            pick.value = v;
-        });
-        pick.addEventListener('change', () => {
-            if (pick.value) {
-                iso.value = pick.value;
-                disp.value = toHr(pick.value);
-            }
-        });
-        f.querySelector('.date-btn').onclick = () => {
-            try {
-                pick.showPicker();
-            } catch (e) {
-                pick.focus();
-            }
-        };
-    });
+    // Croatian date fields (.datefield) are wired up globally in layout.html, which
+    // also exposes hrFromIso/isoFromHr. Here we only add the invoice-specific bits.
 
     // Write an ISO value into a named date field (keeps display + picker in sync).
     const setDate = (name, iso) => {
@@ -392,8 +309,9 @@
         if (!hidden) return;
         const f = hidden.closest('.datefield');
         hidden.value = iso;
-        f.querySelector('.date-display').value = toHr(iso);
-        f.querySelector('.date-pick').value = iso;
+        f.querySelector('.date-display').value = hrFromIso(iso);
+        const pick = f.querySelector('.date-pick');
+        if (pick) pick.value = iso;
     };
     // "Now": issue date/time + delivery date to today, due date to today + 15 days.
     document.getElementById('nowbtn').onclick = () => {

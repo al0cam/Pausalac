@@ -97,6 +97,12 @@
         font: inherit
     }
 
+    /* every form's submit button is spaced from the fields by default, so new
+       forms don't each have to remember it (dialogs reset this via .dlg-actions) */
+    button[type=submit] {
+        margin-top: 1.5rem
+    }
+
     label {
         display: block;
         margin: .75rem 0 .25rem
@@ -180,6 +186,49 @@
         line-height: 1
     }
 
+    /* "Više" dropdown: native <details>, no JS. */
+    nav details.menu {
+        position: relative
+    }
+
+    nav details.menu>summary {
+        list-style: none;
+        cursor: pointer;
+        color: var(--fg)
+    }
+
+    nav details.menu>summary::-webkit-details-marker {
+        display: none
+    }
+
+    nav details.menu>summary::after {
+        content: "\25BE";
+        margin-left: .3rem;
+        font-size: .8em
+    }
+
+    nav details.menu>summary.active {
+        color: var(--blue);
+        font-weight: bold
+    }
+
+    nav .menu-items {
+        position: absolute;
+        right: 0;
+        top: 100%;
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        gap: .6rem;
+        margin-top: .4rem;
+        padding: .7rem .9rem;
+        white-space: nowrap;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, .2)
+    }
+
     @media(max-width:600px) {
         body {
             margin: 1rem auto
@@ -200,6 +249,78 @@
             display: none
         }
     }
+
+    dialog.tour {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--bg);
+        color: var(--fg);
+        max-width: 520px;
+        width: 92%;
+        padding: 1.25rem 1.5rem
+    }
+
+    dialog.tour::backdrop {
+        background: rgba(0, 0, 0, .5)
+    }
+
+    dialog.tour h2 {
+        margin: 0 0 .5rem;
+        font-size: 1.3rem;
+        color: var(--blue)
+    }
+
+    dialog.tour ul {
+        padding-left: 1.1rem;
+        margin: .75rem 0
+    }
+
+    dialog.tour li {
+        margin: .4rem 0
+    }
+
+    dialog.tour .dlg-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 1.25rem
+    }
+
+    /* Croatian date field (visible DD.MM.GGGG. text + calendar button + hidden ISO),
+       wired up globally by the .datefield script below. */
+    .datefield {
+        display: flex;
+        gap: .5rem;
+        align-items: stretch
+    }
+
+    .date-display {
+        flex: 1
+    }
+
+    .date-btn {
+        background: none;
+        color: var(--blue);
+        border: 1px solid var(--line);
+        display: inline-flex;
+        align-items: center;
+        padding: 0 .7rem
+    }
+
+    .date-btn svg {
+        width: 1.2rem;
+        height: 1.2rem;
+        fill: currentColor
+    }
+
+    .date-pick {
+        position: absolute;
+        width: 0;
+        height: 0;
+        padding: 0;
+        border: 0;
+        opacity: 0;
+        pointer-events: none
+    }
 </style>
 <script>
     (function() {
@@ -217,6 +338,53 @@
             };
         });
     })();
+
+    // Croatian date <-> ISO helpers, shared by every .datefield on any page.
+    function hrFromIso(iso) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+        return m ? m[3] + '.' + m[2] + '.' + m[1] + '.' : '';
+    }
+
+    function isoFromHr(hr) {
+        var m = /^\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})\.?\s*$/.exec(hr || '');
+        if (!m) return '';
+        var d = ('0' + m[1]).slice(-2),
+            mo = ('0' + m[2]).slice(-2),
+            y = m[3];
+        var dt = new Date(y + '-' + mo + '-' + d + 'T00:00:00Z'); // reject 31.02. etc.
+        if (isNaN(dt) || dt.getUTCMonth() + 1 != +mo || dt.getUTCDate() != +d) return '';
+        return y + '-' + mo + '-' + d;
+    }
+    addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.datefield').forEach(function(f) {
+            var disp = f.querySelector('.date-display'),
+                iso = f.querySelector('.date-iso'),
+                pick = f.querySelector('.date-pick'),
+                btn = f.querySelector('.date-btn');
+            if (iso.value) {
+                disp.value = hrFromIso(iso.value);
+                if (pick) pick.value = iso.value;
+            }
+            disp.addEventListener('input', function() {
+                var v = isoFromHr(disp.value);
+                iso.value = v;
+                if (pick) pick.value = v;
+            });
+            if (pick) pick.addEventListener('change', function() {
+                if (pick.value) {
+                    iso.value = pick.value;
+                    disp.value = hrFromIso(pick.value);
+                }
+            });
+            if (btn) btn.onclick = function() {
+                try {
+                    pick.showPicker();
+                } catch (e) {
+                    pick.focus();
+                }
+            };
+        });
+    });
 </script>
 {{end}}
 {{define "nav"}}
@@ -226,18 +394,63 @@
   <a href="/invoices/new"{{if eq . "new"}} class="active"{{end}}>{{T "new_invoice"}}</a>
   <a href="/articles"{{if eq . "articles"}} class="active"{{end}}>{{T "articles"}}</a>
   <a href="/customers"{{if eq . "customers"}} class="active"{{end}}>{{T "customers"}}</a>
-  <a href="/import"{{if eq . "import"}} class="active"{{end}}>{{T "import"}}</a>
-  <a href="/settings"{{if eq . "settings"}} class="active"{{end}}>{{T "settings"}}</a>
-  <span class="lang">
-    <a href="?lang=hr"{{if eq (T "lang_code") "hr"}} class="active"{{end}}>HR</a>
-    <a href="?lang=en"{{if eq (T "lang_code") "en"}} class="active"{{end}}>EN</a>
-  </span>
-  <button type="button"
-          id="theme"
-          class="toggle"
-          title="{{T "toggle_theme"}}"
-          aria-label="{{T "toggle_theme"}}">&#9680;</button>
+{{/* periodic / setup pages live under a dropdown to keep the bar uncluttered */}}
+<details class="menu">
+  <summary {{if or (eq . "kpr") (eq . "import") (eq . "settings")}}
+           class="active"
+           {{end}}>{{T "more"}}
+  </summary>
+  <div class="menu-items">
+    <a href="/kpr"{{if eq . "kpr"}} class="active"{{end}}>{{T "kpr"}}</a>
+    <a href="/import"{{if eq . "import"}} class="active"{{end}}>{{T "import"}}</a>
+    <a href="/settings"{{if eq . "settings"}} class="active"{{end}}>{{T "settings"}}</a>
+  </div>
+</details>
+<span class="lang">
+  <a href="?lang=hr"{{if eq (T "lang_code") "hr"}} class="active"{{end}}>HR</a>
+  <a href="?lang=en"{{if eq (T "lang_code") "en"}} class="active"{{end}}>EN</a>
+</span>
+<button type="button"
+        id="theme"
+        class="toggle"
+        title="{{T "toggle_theme"}}"
+        aria-label="{{T "toggle_theme"}}">&#9680;</button>
 </nav>
+{{/* First-run welcome tour: shown once per browser (localStorage), dismissed with
+     the button. Lives in nav so it works whatever page the user lands on first. */}}
+<dialog id="tour" class="tour">
+  <h2>{{T "welcome_title"}}</h2>
+  <p>{{T "welcome_intro"}}</p>
+  <ul>
+    <li><b>{{T "settings"}}</b> — {{T "welcome_settings"}}</li>
+    <li><b>{{T "customers"}}</b> — {{T "welcome_customers"}}</li>
+    <li><b>{{T "articles"}}</b> — {{T "welcome_articles"}}</li>
+    <li><b>{{T "new_invoice"}}</b> — {{T "welcome_new"}}</li>
+    <li><b>{{T "invoices"}}</b> — {{T "welcome_invoices"}}</li>
+    <li><b>{{T "import"}}</b> — {{T "welcome_import"}}</li>
+  </ul>
+  <div class="dlg-actions">
+    <button type="button" id="tourclose">{{T "welcome_close"}}</button>
+  </div>
+</dialog>
+<script>
+    (function() {
+        if (localStorage.getItem('tour_seen')) return;
+        var d = document.getElementById('tour');
+        if (!d) return;
+        var open = function() {
+            try {
+                d.showModal();
+            } catch (e) {}
+        };
+        if (document.readyState === 'loading') addEventListener('DOMContentLoaded', open);
+        else open();
+        document.getElementById('tourclose').onclick = function() {
+            localStorage.setItem('tour_seen', '1');
+            d.close();
+        };
+    })();
+</script>
 {{end}}
 {{/* Inline icon set (Material paths); fill:currentColor so they take the link colour. */}}
 {{define "icon-edit"}}
@@ -258,6 +471,12 @@
 {{define "icon-delete"}}
 <svg viewBox="0 0 24 24" aria-hidden="true">
   <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+</svg>
+{{end}}
+{{/* collect / mark paid (check in a circle) */}}
+{{define "icon-collect"}}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm-2 15l-5-5 1.4-1.4 3.6 3.6 7.6-7.6L19 8l-9 9z" />
 </svg>
 {{end}}
 {{/* Croatian date field: visible DD.MM.GGGG. text + hidden ISO value (what the

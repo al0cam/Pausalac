@@ -97,6 +97,30 @@ type Invoice struct {
 	Note            string
 	TotalCents      int64
 	Deleted         bool
+	PaidDate        string
+	PaidCashCents   int64
+	PaidBankCents   int64
+	PaymentRef      string
+}
+
+// Paid reports whether a collection has been recorded (payment date set).
+func (v Invoice) Paid() bool { return v.PaidDate != "" }
+
+// PaidCents is the total collected (cash + bank).
+func (v Invoice) PaidCents() int64 { return v.PaidCashCents + v.PaidBankCents }
+
+// PaidMethodKey is the i18n key describing how the invoice was collected.
+func (v Invoice) PaidMethodKey() string {
+	switch {
+	case v.PaidCashCents > 0 && v.PaidBankCents > 0:
+		return "method_both"
+	case v.PaidBankCents > 0:
+		return "method_bank"
+	case v.PaidCashCents > 0:
+		return "method_cash"
+	default:
+		return ""
+	}
 }
 
 type Item struct {
@@ -191,7 +215,10 @@ func main() {
 	mux.HandleFunc("GET /invoices/{id}/edit", editInvoice(conn))
 	mux.HandleFunc("POST /invoices/{id}", updateInvoice(conn))
 	mux.HandleFunc("POST /invoices/{id}/delete", deleteInvoice(conn))
+	mux.HandleFunc("POST /invoices/{id}/payment", recordPayment(conn))
+	mux.HandleFunc("POST /invoices/{id}/payment/clear", clearPayment(conn))
 	mux.HandleFunc("GET /invoices/{id}/history", invoiceHistory(conn))
+	mux.HandleFunc("GET /kpr", kprPage(conn))
 	mux.HandleFunc("GET /import", importPage(conn))
 	mux.HandleFunc("POST /import", runImport(conn))
 	mux.HandleFunc("GET /settings", settingsPage(conn))
@@ -225,13 +252,20 @@ func cmp(v, def string) string {
 
 func listInvoices(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// ?filter=unpaid shows only nenaplaćeni računi (no payment recorded yet).
+		filter := r.URL.Query().Get("filter")
+		where := "i.deleted_at IS NULL"
+		if filter == "unpaid" {
+			where += " AND i.paid_date = ''"
+		}
 		rows, err := db.Query(`
-			SELECT i.id, i.number, i.issue_date, c.name, i.note,
+			SELECT i.id, i.number, i.issue_date, c.name, i.note, i.paid_date,
+			       i.paid_cash_cents, i.paid_bank_cents,
 			       COALESCE(SUM(it.line_total_cents), 0)
 			FROM invoices i
 			JOIN customers c ON c.id = i.customer_id
 			LEFT JOIN invoice_items it ON it.invoice_id = i.id
-			WHERE i.deleted_at IS NULL
+			WHERE ` + where + `
 			GROUP BY i.id
 			ORDER BY i.issue_date DESC, i.id DESC`)
 		if err != nil {
@@ -245,7 +279,8 @@ func listInvoices(db *sql.DB) http.HandlerFunc {
 		var invs []Invoice
 		for rows.Next() {
 			var v Invoice
-			if err := rows.Scan(&v.ID, &v.Number, &v.IssueDate, &v.Customer, &v.Note, &v.TotalCents); err != nil {
+			if err := rows.Scan(&v.ID, &v.Number, &v.IssueDate, &v.Customer, &v.Note,
+				&v.PaidDate, &v.PaidCashCents, &v.PaidBankCents, &v.TotalCents); err != nil {
 				httpErr(w, err)
 				return
 			}
@@ -254,7 +289,7 @@ func listInvoices(db *sql.DB) http.HandlerFunc {
 			}
 			invs = append(invs, v)
 		}
-		render(w, r, "list.html", invs)
+		render(w, r, "list.html", map[string]any{"Invoices": invs, "Filter": filter})
 	}
 }
 
@@ -1131,8 +1166,10 @@ func invoiceHistory(db *sql.DB) http.HandlerFunc {
 
 // importResult summarizes one import run for display.
 type importResult struct {
-	Company bool
-	Err     string
+	Company   bool
+	Invoices  int
+	Customers int
+	Err       string
 }
 
 func importPage(db *sql.DB) http.HandlerFunc {
@@ -1142,8 +1179,8 @@ func importPage(db *sql.DB) http.HandlerFunc {
 }
 
 // runImport reads company data from an uploaded invoice or Plavi ured workbook
-// in xlsx/xlsm, ods, or pdf, in Croatian or English.
-// ponytail: invoice/customer import (BAZA sheet) will land with Knjiga prometa.
+// (xlsx/xlsm/ods/pdf, Croatian or English) and, for Plavi ured workbooks, also
+// imports the invoices and customers from the BAZA sheet.
 func runImport(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lang := langOf(r)
@@ -1168,18 +1205,198 @@ func runImport(db *sql.DB) http.HandlerFunc {
 			fail("import_error")
 			return
 		}
+		// Company data (best-effort): a Plavi ured PODACI sheet or an invoice header.
 		fields := extractCompany(lines)
-		// Trust check: only accept files that actually look like a company/invoice.
-		if fields["name"] == "" || (fields["iban"] == "" && fields["owner"] == "" && fields["oib"] == "") {
+		if fields["name"] != "" && (fields["iban"] != "" || fields["owner"] != "" || fields["oib"] != "") {
+			if err := saveCompanyFields(db, fields); err != nil {
+				httpErr(w, err)
+				return
+			}
+			res.Company = true
+		}
+		// Invoices + customers from the BAZA sheet (Plavi ured xlsx/xlsm only).
+		switch strings.ToLower(filepath.Ext(hdr.Filename)) {
+		case ".xlsx", ".xlsm":
+			res.Invoices, res.Customers, err = importBaza(db, data)
+			if err != nil {
+				httpErr(w, err)
+				return
+			}
+		}
+		if !res.Company && res.Invoices == 0 {
 			fail("import_no_company")
 			return
 		}
-		if err := saveCompanyFields(db, fields); err != nil {
-			httpErr(w, err)
-			return
-		}
-		res.Company = true
 		render(w, r, "import.html", map[string]any{"Result": res})
+	}
+}
+
+// importBaza imports invoices (and the customers they reference) from a Plavi
+// ured workbook's BAZA sheet. It is idempotent: rows whose invoice number
+// already exists are skipped, so re-importing the same file is safe. Returns the
+// number of invoices and new customers created.
+func importBaza(db *sql.DB, data []byte) (int, int, error) {
+	xl, err := excelize.OpenReader(bytes.NewReader(data))
+	if err != nil {
+		return 0, 0, err
+	}
+	defer xl.Close()
+	hasBaza := false
+	for _, s := range xl.GetSheetList() {
+		if strings.EqualFold(s, "BAZA") {
+			hasBaza = true
+		}
+	}
+	if !hasBaza {
+		return 0, 0, nil
+	}
+	// RawCellValue so dates arrive as Excel serial numbers (deterministic) rather
+	// than the sheet's locale-formatted rendering.
+	rows, err := xl.GetRows("BAZA", excelize.Options{RawCellValue: true})
+	if err != nil {
+		return 0, 0, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, 0, err
+	}
+	defer tx.Rollback()
+
+	invoices, customers := 0, 0
+	for i, row := range rows {
+		if i == 0 {
+			continue // header
+		}
+		cell := func(idx int) string {
+			if idx < len(row) {
+				return strings.TrimSpace(row[idx])
+			}
+			return ""
+		}
+		number, name := cell(0), cell(1)
+		issue := serialToDate(cell(5))
+		// skip the "primjer" example, the legend row, blank template rows, and any
+		// row missing the essentials (customer + a valid issue date).
+		if number == "" || strings.EqualFold(number, "primjer") || name == "" || issue == "" {
+			continue
+		}
+		var exists int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM invoices WHERE number = ?`, number).Scan(&exists); err != nil {
+			return invoices, customers, err
+		}
+		if exists > 0 {
+			continue
+		}
+		// up to 5 line-item groups: (description, JM, qty, cijena, rabat, iznos)
+		var items []itemInput
+		for g := 0; g < 5; g++ {
+			b := 9 + g*6
+			if cell(b) == "" {
+				continue
+			}
+			items = append(items, itemInput{
+				Description: cell(b),
+				Unit:        cell(b + 1),
+				Quantity:    cell(b + 2),
+				UnitPrice:   cell(b + 3),
+				Discount:    cell(b + 4),
+			})
+		}
+		if len(items) == 0 {
+			continue
+		}
+		custID, created, err := upsertCustomer(tx, name, cell(4), joinAddr(cell(2), cell(3)))
+		if err != nil {
+			return invoices, customers, err
+		}
+		if created {
+			customers++
+		}
+		res, err := tx.Exec(`INSERT INTO invoices
+			(number, issue_date, customer_id, note, issue_time, delivery_date, due_date, payment_method, poziv,
+			 paid_date, paid_cash_cents, paid_bank_cents, payment_ref)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			number, issue, custID, cell(40), serialToTime(cell(7)), serialToDate(cell(6)), serialToDate(cell(8)), "", "",
+			serialToDate(cell(45)), euroToCents(cell(42)), euroToCents(cell(43)), cell(44))
+		if err != nil {
+			return invoices, customers, err
+		}
+		invID, _ := res.LastInsertId()
+		if err := insertItems(tx, invID, items); err != nil {
+			return invoices, customers, err
+		}
+		if err := recordRevision(tx, invID, "created"); err != nil {
+			return invoices, customers, err
+		}
+		invoices++
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, err
+	}
+	return invoices, customers, nil
+}
+
+// upsertCustomer finds a customer by OIB (or by name when no OIB) and inserts one
+// if none matches. Returns the id and whether a new row was created.
+func upsertCustomer(tx *sql.Tx, name, oib, address string) (int64, bool, error) {
+	var id int64
+	var err error
+	if oib != "" {
+		err = tx.QueryRow(`SELECT id FROM customers WHERE oib = ?`, oib).Scan(&id)
+	} else {
+		err = tx.QueryRow(`SELECT id FROM customers WHERE name = ?`, name).Scan(&id)
+	}
+	if err == nil {
+		return id, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, false, err
+	}
+	res, err := tx.Exec(`INSERT INTO customers (name, oib, address) VALUES (?, ?, ?)`, name, oib, address)
+	if err != nil {
+		return 0, false, err
+	}
+	id, _ = res.LastInsertId()
+	return id, true, nil
+}
+
+// serialToDate converts an Excel date serial ("45658") to an ISO date; "" if the
+// value is blank or not a serial.
+func serialToDate(s string) string {
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil || f <= 0 {
+		return ""
+	}
+	t, err := excelize.ExcelDateToTime(f, false)
+	if err != nil {
+		return ""
+	}
+	return t.Format("2006-01-02")
+}
+
+// serialToTime converts an Excel time serial (a day fraction like 0.5) to HH:MM.
+func serialToTime(s string) string {
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil || f <= 0 {
+		return ""
+	}
+	t, err := excelize.ExcelDateToTime(f, false)
+	if err != nil {
+		return ""
+	}
+	return t.Format("15:04")
+}
+
+// joinAddr combines the BAZA street and city columns into one address line.
+func joinAddr(street, city string) string {
+	street, city = strings.TrimSpace(street), strings.TrimSpace(city)
+	switch {
+	case street == "":
+		return city
+	case city == "":
+		return street
+	default:
+		return street + ", " + city
 	}
 }
 
@@ -1445,10 +1662,12 @@ func viewInvoice(db *sql.DB) http.HandlerFunc {
 		var v Invoice
 		var deletedAt sql.NullString
 		err = db.QueryRow(`SELECT i.id, i.number, i.issue_date, i.issue_time, i.delivery_date,
-			i.due_date, i.payment_method, i.poziv, c.name, c.address, c.oib, i.note, i.deleted_at
+			i.due_date, i.payment_method, i.poziv, i.paid_date, i.paid_cash_cents, i.paid_bank_cents,
+			i.payment_ref, c.name, c.address, c.oib, i.note, i.deleted_at
 			FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.id = ?`, id).
 			Scan(&v.ID, &v.Number, &v.IssueDate, &v.IssueTime, &v.DeliveryDate, &v.DueDate,
-				&v.PaymentMethod, &v.Poziv, &v.Customer, &v.CustomerAddress, &v.CustomerOIB, &v.Note, &deletedAt)
+				&v.PaymentMethod, &v.Poziv, &v.PaidDate, &v.PaidCashCents, &v.PaidBankCents,
+				&v.PaymentRef, &v.Customer, &v.CustomerAddress, &v.CustomerOIB, &v.Note, &deletedAt)
 		v.Deleted = deletedAt.Valid
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
@@ -1480,7 +1699,149 @@ func viewInvoice(db *sql.DB) http.HandlerFunc {
 		}
 		totals := computeTotals(items, company.VatExempt)
 		v.TotalCents = totals.TotalCents
-		render(w, r, "view.html", map[string]any{"Invoice": v, "Items": items, "Company": company, "Totals": totals})
+		render(w, r, "view.html", map[string]any{
+			"Invoice":     v,
+			"Items":       items,
+			"Company":     company,
+			"Totals":      totals,
+			"Today":       time.Now().Format("2006-01-02"),
+			"PaidDefault": fmt.Sprintf("%.2f", float64(totals.TotalCents)/100),
+			"PayErr":      r.URL.Query().Get("payerr") != "",
+		})
+	}
+}
+
+// recordPayment stores a collection (naplata) against an invoice: amount, date,
+// and method (gotovina -> cash column, virmanski -> bank column).
+func recordPayment(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad form", http.StatusBadRequest)
+			return
+		}
+		date := r.FormValue("paid_date")
+		method := r.FormValue("method")
+		amount := euroToCents(r.FormValue("amount"))
+		dest := "/invoices/" + strconv.FormatInt(id, 10)
+		if _, e := time.Parse("2006-01-02", date); e != nil || amount <= 0 || (method != "gotovina" && method != "virmanski") {
+			http.Redirect(w, r, dest+"?payerr=1", http.StatusSeeOther)
+			return
+		}
+		var cash, bank int64
+		if method == "gotovina" {
+			cash = amount
+		} else {
+			bank = amount
+		}
+		if _, err := db.Exec(`UPDATE invoices SET paid_date = ?, paid_cash_cents = ?, paid_bank_cents = ?, payment_ref = ?
+			WHERE id = ? AND deleted_at IS NULL`,
+			date, cash, bank, strings.TrimSpace(r.FormValue("payment_ref")), id); err != nil {
+			httpErr(w, err)
+			return
+		}
+		http.Redirect(w, r, dest, http.StatusSeeOther)
+	}
+}
+
+// clearPayment removes a recorded collection, returning the invoice to unpaid.
+func clearPayment(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if _, err := db.Exec(`UPDATE invoices SET paid_date = '', paid_cash_cents = 0, paid_bank_cents = 0, payment_ref = '' WHERE id = ?`, id); err != nil {
+			httpErr(w, err)
+			return
+		}
+		http.Redirect(w, r, "/invoices/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+	}
+}
+
+// kprRow is one line of the Knjiga prometa (turnover ledger).
+type kprRow struct {
+	No         int
+	Date       string // paid_date (ISO)
+	Ref        string // broj temeljnice (broj izvoda/uplatnice)
+	Number     string // broj računa
+	CashCents  int64
+	BankCents  int64
+	TotalCents int64
+}
+
+// kprPage renders the Knjiga prometa for one year: every collected payment as a
+// ledger row (ordered by collection date) plus cash/bank/total sums. The book is
+// per calendar year, matching the Plavi ured KPR form.
+func kprPage(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		company, err := loadCompany(db)
+		if err != nil {
+			httpErr(w, err)
+			return
+		}
+		// years that actually have collected payments, newest first
+		yrows, err := db.Query(`SELECT DISTINCT substr(paid_date, 1, 4) y
+			FROM invoices WHERE paid_date != '' AND deleted_at IS NULL ORDER BY y DESC`)
+		if err != nil {
+			httpErr(w, err)
+			return
+		}
+		defer yrows.Close()
+		var years []string
+		for yrows.Next() {
+			var y string
+			if err := yrows.Scan(&y); err != nil {
+				httpErr(w, err)
+				return
+			}
+			years = append(years, y)
+		}
+		year := r.URL.Query().Get("year")
+		if year == "" {
+			if len(years) > 0 {
+				year = years[0]
+			} else {
+				year = time.Now().Format("2006")
+			}
+		}
+		rows, err := db.Query(`SELECT number, paid_date, payment_ref, paid_cash_cents, paid_bank_cents
+			FROM invoices
+			WHERE paid_date != '' AND deleted_at IS NULL AND substr(paid_date, 1, 4) = ?
+			ORDER BY paid_date, id`, year)
+		if err != nil {
+			httpErr(w, err)
+			return
+		}
+		defer rows.Close()
+		var list []kprRow
+		var cashTotal, bankTotal int64
+		for rows.Next() {
+			var k kprRow
+			if err := rows.Scan(&k.Number, &k.Date, &k.Ref, &k.CashCents, &k.BankCents); err != nil {
+				httpErr(w, err)
+				return
+			}
+			k.No = len(list) + 1
+			k.TotalCents = k.CashCents + k.BankCents
+			cashTotal += k.CashCents
+			bankTotal += k.BankCents
+			list = append(list, k)
+		}
+		render(w, r, "kpr.html", map[string]any{
+			"Company":    company,
+			"Rows":       list,
+			"Year":       year,
+			"Years":      years,
+			"CashTotal":  cashTotal,
+			"BankTotal":  bankTotal,
+			"GrandTotal": cashTotal + bankTotal,
+		})
 	}
 }
 

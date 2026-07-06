@@ -65,6 +65,10 @@ func migrate(conn *sql.DB) error {
 		`ALTER TABLE invoices ADD COLUMN due_date TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE invoices ADD COLUMN payment_method TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE invoices ADD COLUMN poziv TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE invoices ADD COLUMN paid_date TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE invoices ADD COLUMN paid_cash_cents INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE invoices ADD COLUMN paid_bank_cents INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE invoices ADD COLUMN payment_ref TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, s := range stmts {
 		if _, err := conn.Exec(s); err != nil && !strings.Contains(err.Error(), "duplicate column name") {

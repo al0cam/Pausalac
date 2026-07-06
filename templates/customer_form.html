@@ -2,11 +2,6 @@
 <html lang="{{T "lang_code"}}">
   <head>
     {{template "head" .}}<title>{{if .ID}}{{T "edit_customer"}}{{else}}{{T "new_customer"}}{{end}}</title>
-    <style>
-        button[type=submit] {
-            margin-top: 1.5rem
-        }
-    </style>
   </head>
   <body>
     {{template "nav" "customers"}}

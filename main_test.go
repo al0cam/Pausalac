@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/xuri/excelize/v2"
 
 	"pausalac/db"
 )
@@ -514,6 +517,192 @@ func TestImportFormats(t *testing.T) {
 			if c[k] != first[k] {
 				t.Errorf("%s: %s = %q, differs from pdf %q", f, k, c[k], first[k])
 			}
+		}
+	}
+}
+
+// TestImportBaza builds a minimal Plavi ured BAZA sheet in memory and imports it:
+// one invoice with two line items, a new customer, correct date conversion, and
+// idempotency (re-import adds nothing). Also checks the primjer/blank rows skip.
+func TestImportBaza(t *testing.T) {
+	db := freshDB(t)
+	f := excelize.NewFile()
+	f.NewSheet("BAZA")
+	f.DeleteSheet("Sheet1")
+	set := func(cell string, v any) { f.SetCellValue("BAZA", cell, v) }
+	set("A1", "Broj") // header row (skipped)
+	// real invoice: number 7, customer Acme, issue 2025-01-01 (serial 45658), due 45673, 12:00
+	set("A2", "7")
+	set("B2", "Acme d.o.o.")
+	set("C2", "Ilica 1")
+	set("D2", "10000 Zagreb")
+	set("E2", "12345678901")
+	set("F2", 45658.0)
+	set("G2", 45659.0)
+	set("H2", 0.5)
+	set("I2", 45673.0)
+	set("J2", "Usluga A")
+	set("K2", "sat")
+	set("L2", 2.0)
+	set("M2", 50.0)
+	set("N2", 0.0)
+	set("O2", 100.0)
+	set("P2", "Usluga B") // second item group starts at column P (index 15)
+	set("Q2", "kom")
+	set("R2", 1.0)
+	set("S2", 30.0)
+	set("AQ2", 130.0)   // collected in cash (col 42)
+	set("AT2", 45673.0) // payment date 2025-01-16 (col 45)
+	// primjer + blank-customer rows must be skipped
+	set("A3", "primjer")
+	set("B3", "Example")
+	set("F3", 45658.0)
+	set("J3", "x")
+	set("A4", "99")
+
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		t.Fatal(err)
+	}
+	data := buf.Bytes()
+
+	inv, cust, err := importBaza(db, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv != 1 || cust != 1 {
+		t.Fatalf("import = %d invoices, %d customers; want 1, 1", inv, cust)
+	}
+	// the invoice landed with converted dates/time and both items
+	var issue, due, tm string
+	var items, cents int
+	if err := db.QueryRow(`SELECT issue_date, due_date, issue_time FROM invoices WHERE number = '7'`).
+		Scan(&issue, &due, &tm); err != nil {
+		t.Fatal(err)
+	}
+	if issue != "2025-01-01" || due != "2025-01-16" || tm != "12:00" {
+		t.Fatalf("dates: issue=%q due=%q time=%q", issue, due, tm)
+	}
+	db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(line_total_cents),0) FROM invoice_items
+		WHERE invoice_id = (SELECT id FROM invoices WHERE number='7')`).Scan(&items, &cents)
+	if items != 2 || cents != 13000 { // 2*50 + 1*30 = 130.00
+		t.Fatalf("items = %d, total cents = %d; want 2, 13000", items, cents)
+	}
+	// the collection columns import as a recorded (cash) payment
+	var paidDate string
+	var cash int64
+	db.QueryRow(`SELECT paid_date, paid_cash_cents FROM invoices WHERE number='7'`).Scan(&paidDate, &cash)
+	if paidDate != "2025-01-16" || cash != 13000 {
+		t.Fatalf("payment: date=%q cash=%d; want 2025-01-16, 13000", paidDate, cash)
+	}
+	// re-import is idempotent (number 7 already exists)
+	inv2, cust2, err := importBaza(db, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inv2 != 0 || cust2 != 0 {
+		t.Fatalf("re-import = %d invoices, %d customers; want 0, 0", inv2, cust2)
+	}
+}
+
+// TestPayment records a collection, checks the paid/unpaid list filter and the
+// view, clears it, and confirms invalid input is rejected.
+func TestPayment(t *testing.T) {
+	db := freshDB(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", listInvoices(db))
+	mux.HandleFunc("GET /invoices/{id}", viewInvoice(db))
+	mux.HandleFunc("POST /invoices/{id}/payment", recordPayment(db))
+	mux.HandleFunc("POST /invoices/{id}/payment/clear", clearPayment(db))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
+	// the seed invoice starts unpaid -> listed under the unpaid filter
+	if b := body(t, mustGet(t, http.DefaultClient, srv.URL+"/?filter=unpaid")); !strings.Contains(b, "1/1/2025") {
+		t.Fatal("unpaid filter should list the seed invoice")
+	}
+
+	resp, err := client.PostForm(srv.URL+"/invoices/1/payment", url.Values{
+		"paid_date": {"2025-02-01"}, "amount": {"50,00"}, "method": {"gotovina"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("record payment status = %d, want 303", resp.StatusCode)
+	}
+	// view shows it collected; unpaid filter no longer lists it
+	if b := body(t, mustGet(t, http.DefaultClient, srv.URL+"/invoices/1")); !strings.Contains(b, "Naplaćeno") || !strings.Contains(b, "Gotovina") {
+		t.Fatalf("view missing collection details:\n%s", b)
+	}
+	if b := body(t, mustGet(t, http.DefaultClient, srv.URL+"/?filter=unpaid")); strings.Contains(b, "1/1/2025") {
+		t.Fatal("paid invoice should be hidden from the unpaid filter")
+	}
+
+	// clearing returns it to unpaid
+	if _, err := client.PostForm(srv.URL+"/invoices/1/payment/clear", nil); err != nil {
+		t.Fatal(err)
+	}
+	if b := body(t, mustGet(t, http.DefaultClient, srv.URL+"/?filter=unpaid")); !strings.Contains(b, "1/1/2025") {
+		t.Fatal("cleared invoice should reappear under the unpaid filter")
+	}
+
+	// a zero amount is rejected (redirect carries payerr, invoice stays unpaid)
+	resp, err = client.PostForm(srv.URL+"/invoices/1/payment", url.Values{
+		"paid_date": {"2025-02-01"}, "amount": {"0"}, "method": {"gotovina"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loc := resp.Header.Get("Location"); !strings.Contains(loc, "payerr") {
+		t.Fatalf("invalid payment redirected to %q, want payerr", loc)
+	}
+}
+
+// TestKPR records two collections on different dates and checks the ledger lists
+// them ordered by collection date with correct cash/bank/total sums.
+func TestKPR(t *testing.T) {
+	db := freshDB(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /invoices", createInvoice(db))
+	mux.HandleFunc("POST /invoices/{id}/payment", recordPayment(db))
+	mux.HandleFunc("GET /kpr", kprPage(db))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
+	// pay the seed invoice by bank on the later date
+	if _, err := client.PostForm(srv.URL+"/invoices/1/payment", url.Values{
+		"paid_date": {"2025-03-05"}, "amount": {"100,00"}, "method": {"virmanski"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// create a second invoice, collected in cash on the earlier date
+	resp, err := client.PostForm(srv.URL+"/invoices", url.Values{
+		"issue_date": {"2025-02-01"}, "customer_id": {"1"},
+		"description": {"X"}, "quantity": {"1"}, "unit_price": {"50,00"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := strings.TrimPrefix(resp.Header.Get("Location"), "/invoices/")
+	if _, err := client.PostForm(srv.URL+"/invoices/"+id+"/payment", url.Values{
+		"paid_date": {"2025-03-01"}, "amount": {"50,00"}, "method": {"gotovina"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	b := body(t, mustGet(t, http.DefaultClient, srv.URL+"/kpr?year=2025"))
+	// ledger is ordered by collection date: 01.03 must appear before 05.03
+	i1, i2 := strings.Index(b, "01.03.2025."), strings.Index(b, "05.03.2025.")
+	if i1 < 0 || i2 < 0 || i1 > i2 {
+		t.Fatalf("KPR rows not ordered by collection date (i1=%d i2=%d)", i1, i2)
+	}
+	// cash 50.00, bank 100.00, grand total 150.00
+	for _, want := range []string{"50.00", "100.00", "150.00"} {
+		if !strings.Contains(b, want) {
+			t.Fatalf("KPR missing amount %q in:\n%s", want, b)
 		}
 	}
 }

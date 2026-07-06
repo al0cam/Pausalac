@@ -34,6 +34,10 @@ CREATE TABLE IF NOT EXISTS invoices (
   due_date       TEXT NOT NULL DEFAULT '', -- dospijeće plaćanja (ISO)
   payment_method TEXT NOT NULL DEFAULT '', -- način plaćanja
   poziv          TEXT NOT NULL DEFAULT '', -- poziv na broj (payment reference)
+  paid_date       TEXT NOT NULL DEFAULT '',    -- nadnevak naplate (ISO); '' = unpaid
+  paid_cash_cents INTEGER NOT NULL DEFAULT 0,  -- naplaćeno gotovinom
+  paid_bank_cents INTEGER NOT NULL DEFAULT 0,  -- naplaćeno virmanski (preko računa)
+  payment_ref     TEXT NOT NULL DEFAULT '',    -- broj izvoda/uplatnice
   created_at     TEXT NOT NULL DEFAULT (datetime('now')),
   deleted_at     TEXT                      -- soft delete: non-NULL means deleted
 );

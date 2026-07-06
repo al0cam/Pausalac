@@ -24,6 +24,7 @@
             border: 0;
             color: var(--red);
             padding: 0;
+            margin: 0;
             cursor: pointer;
             display: inline-flex
         }
@@ -34,12 +35,41 @@
             fill: currentColor;
             display: block
         }
+
+        .filters {
+            display: flex;
+            gap: 1rem;
+            align-items: center
+        }
+
+        .filters a.on {
+            color: var(--blue);
+            font-weight: bold
+        }
+
+        .paid {
+            color: #2e7d32
+        }
+
+        .unpaid {
+            color: var(--red)
+        }
+
+        @media(prefers-color-scheme:dark) {
+            .paid {
+                color: #81c784
+            }
+        }
     </style>
   </head>
   <body>
     {{template "nav" "list"}}
     <h1>{{T "invoices"}}</h1>
-    <p><a class="btn" href="/invoices/new">+ {{T "new_invoice"}}</a></p>
+    <p class="filters">
+      <a class="btn" href="/invoices/new">+ {{T "new_invoice"}}</a>
+      <a href="/"{{if ne .Filter "unpaid"}} class="on"{{end}}>{{T "filter_all"}}</a>
+      <a href="/?filter=unpaid"{{if eq .Filter "unpaid"}} class="on"{{end}}>{{T "filter_unpaid"}}</a>
+    </p>
     <div class="scroll">
       <table>
         <thead>
@@ -48,18 +78,23 @@
             <th>{{T "date"}}</th>
             <th>{{T "customer"}}</th>
             <th class="r">{{T "amount_eur"}}</th>
+            <th>{{T "paid_short"}}</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          {{range .}}
+          {{range .Invoices}}
           <tr>
             <td><a href="/invoices/{{.ID}}">{{.Number}}</a></td>
             <td>{{date .IssueDate}}</td>
             <td>{{.Customer}}</td>
             <td class="r">{{eur .TotalCents}}</td>
+            <td>{{if .Paid}}<span class="paid">{{date .PaidDate}}</span>{{else}}<span class="unpaid">&mdash;</span>{{end}}</td>
             <td>
               <div class="actions">
+                {{if not .Paid}}<a href="/invoices/{{.ID}}#pay"
+   title="{{T "collect"}}"
+   aria-label="{{T "collect"}}">{{template "icon-collect"}}</a>{{end}}
                 <a href="/invoices/{{.ID}}/edit"
                    title="{{T "edit"}}"
                    aria-label="{{T "edit"}}">{{template "icon-edit"}}</a>
@@ -79,7 +114,7 @@
           </tr>
         {{else}}
           <tr>
-            <td colspan="5">{{T "no_invoices"}}</td>
+            <td colspan="6">{{T "no_invoices"}}</td>
           </tr>
           {{end}}
         </tbody>
