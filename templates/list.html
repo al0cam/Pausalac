@@ -38,27 +38,29 @@
 
         .filters {
             display: flex;
-            gap: 1rem;
-            align-items: center
+            gap: .5rem;
+            align-items: center;
+            flex-wrap: wrap
+        }
+
+        .filters a:not(.btn) {
+            color: var(--muted);
+            text-decoration: none;
+            padding: .35rem .8rem;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            font-size: .9rem
         }
 
         .filters a.on {
             color: var(--blue);
-            font-weight: bold
+            background: var(--accent-weak);
+            border-color: transparent;
+            font-weight: 600
         }
 
-        .paid {
-            color: #2e7d32
-        }
-
-        .unpaid {
-            color: var(--red)
-        }
-
-        @media(prefers-color-scheme:dark) {
-            .paid {
-                color: #81c784
-            }
+        .filters .btn {
+            margin-right: .5rem
         }
     </style>
   </head>
@@ -89,7 +91,7 @@
             <td>{{date .IssueDate}}</td>
             <td>{{.Customer}}</td>
             <td class="r">{{eur .TotalCents}}</td>
-            <td>{{if .Paid}}<span class="paid">{{date .PaidDate}}</span>{{else}}<span class="unpaid">&mdash;</span>{{end}}</td>
+            <td>{{if .Paid}}<span class="badge badge-paid">{{date .PaidDate}}</span>{{else}}<span class="badge badge-unpaid">{{T "filter_unpaid"}}</span>{{end}}</td>
             <td>
               <div class="actions">
                 {{if not .Paid}}<a href="/invoices/{{.ID}}#pay"

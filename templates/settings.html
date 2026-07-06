@@ -32,7 +32,7 @@
     {{if .Saved}}
     <p class="ok">{{T "settings_saved"}}</p>
     {{end}}
-    <form method="post" action="/settings">
+    <form class="card" method="post" action="/settings">
       <label>{{T "company_name"}}</label>
       <input name="name"
              value="{{.Company.Name}}"

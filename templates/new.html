@@ -4,7 +4,16 @@
     {{template "head" .}}<title>{{T "new_invoice"}}</title>
     <style>
         td {
-            padding: .25rem
+            padding: .3rem .4rem
+        }
+
+        /* the invoice form is itself a card; the items table sits flat inside it
+           instead of being a nested card */
+        .card .scroll {
+            background: transparent;
+            border: 0;
+            border-radius: 0;
+            box-shadow: none
         }
 
         #items td:first-child {
@@ -150,7 +159,8 @@
   <body>
     {{template "nav" "new"}}
     <h1>{{if .ID}}{{T "edit_invoice"}} {{.Number}}{{else}}{{T "new_invoice"}}{{end}}</h1>
-  <form method="post"
+  <form class="card"
+        method="post"
         action="{{if .ID}}/invoices/{{.ID}}{{else}}/invoices{{end}}">
     {{if not .ID}}
     <p><small>{{T "number_auto"}}</small></p>

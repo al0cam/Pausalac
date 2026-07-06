@@ -6,7 +6,8 @@
   <body>
     {{template "nav" "customers"}}
     <h1>{{if .ID}}{{T "edit_customer"}}{{else}}{{T "new_customer"}}{{end}}</h1>
-  <form method="post"
+  <form class="card"
+        method="post"
         action="{{if .ID}}/customers/{{.ID}}{{else}}/customers{{end}}">
     <label>{{T "customer"}}</label>
     <input name="name"
